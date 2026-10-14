@@ -78,6 +78,7 @@ flowchart LR
 | R18 | `buildFileName(extension, now?)` 生成 `身份证复印件_YYYYMMDD_HHmm.ext` | `utils/export.ts` | 断言：固定时间下输出 `身份证复印件_20261014_0905.pdf` | 已验证 |
 | R19 | `A4Preview` 用 CSS flex 排布「上/左标尺 + 纸张画布 + 参考线叠加画布」；标尺刻度与高亮区间用百分比定位，随预览尺寸自适应；拖动时 `utils/alignment.resolveSnap` 在毫米空间计算吸附位置与参考线，参考线画在独立的叠加画布上（`pointer-events: none`），避免污染导出画布 | `components/A4Preview.tsx`、`utils/alignment.ts`、`stores/useIdCardStore.ts` | 断言覆盖吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0；浏览器实测真实鼠标拖拽后 `offset` 精确落在参考线上（横向 -51mm → 左边缘 10mm、纵向 +61mm → 上边缘 148.5mm），拖拽中叠加画布有参考线像素、松开后清零，关闭开关后标尺不再占位 | 已验证 |
 | R20 | `utils/watermark.ts` 纯函数：`normalizeWatermarkText`（折叠空白 + 按码点截断 15 字）、`estimateTextWidthMm` / `estimateTextHeightMm`（宽度与行高估算）、`computeWatermarkLayout`（覆盖外接圆的瓦片坐标）、`resolveWatermarkDrawParams`（参数钳制 + 可绘制性判定）与绘制函数 `drawWatermark`；`composeA4Canvas` 在面位之后、校准尺之前调用；`WatermarkPanel` 提供开关、文字输入（`maxLength` 15 + `showCount`）与字号 / 间距 / 角度三个滑块；`WatermarkSettings` 存入 Zustand store（TD17–TD19） | `utils/watermark.ts`、`utils/renderA4.ts`、`components/WatermarkPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts`、`constants/idCard.ts` | 断言覆盖文字折叠与截断、宽度 / 行高估算、瓦片步进与四角覆盖、密度单调性、参数钳制、空文字与超小画布不绘制、瓦片数量上界；浏览器实测 UI 开关与输入联动、启用后白边出现墨迹、密度 / 角度 / 字号改动都会改变预览墨迹、关闭后墨迹归零 | 已验证 |
+| R21 | `constants/project.ts` 集中存放 `PROJECT_AUTHOR` / `PROJECT_REPO_URL` / `PROJECT_REPO_LABEL`；`AppFooter` 用 antd `Typography.Link` 渲染普通 `<a target="_blank" rel="noopener noreferrer">`，由 `HomePage` 挂在栅格 `Row` **之外**的容器末尾（避免受 A4 预览列 `sticky` 影响） | `constants/project.ts`、`components/AppFooter.tsx`、`pages/HomePage.tsx` | 断言：作者非空、仓库地址为 HTTPS 的 GitHub 地址、展示用短地址与真实地址一致；浏览器实测页脚文案含作者、链接 `href` / `target` / `rel` 正确、页脚内无 `img` / `script` / `iframe`，且全流程仍无第三方请求 | 已验证 |
 
 ---
 
@@ -120,6 +121,7 @@ flowchart LR
     ├── App.tsx                   # 应用外壳（单页工具，无路由）
     ├── index.css                 # Tailwind 分层引入 + 少量全局样式
     ├── constants/idCard.ts       # 规格预设、A4 尺寸、DPI 选项、mmToPx
+    ├── constants/project.ts      # 项目署名与仓库地址（页脚数据源）
     ├── types/idCard.ts           # FaceKind / FaceState / LayoutSettings / ExportSettings
     ├── stores/useIdCardStore.ts  # Zustand store：faces、layout、exportSettings
     ├── hooks/
@@ -136,6 +138,7 @@ flowchart LR
     │   └── export.ts             # PNG/JPG/PDF 导出、文件名、下载
     ├── components/
     │   ├── AppHeader.tsx         # 标题、隐私标识、重置
+    │   ├── AppFooter.tsx         # 页脚：项目作者与仓库地址
     │   ├── PrivacyNotice.tsx     # 本地处理说明
     │   ├── FieldRow.tsx          # 设置项标签 + 控件的统一排版
     │   ├── UploadPanel.tsx       # 空状态上传入口（点击/拖拽）
@@ -419,6 +422,9 @@ pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/
 | 2026-10-14 | 新增 R20 自定义水印：`utils/watermark.ts`（文字规范化 / 宽度估算 / 覆盖外接圆的瓦片布局 / 参数钳制与绘制）、`composeA4Canvas` 在面位与校准尺之间调用 `drawWatermark`、`WatermarkPanel`（开关 + 文字输入 + 字号 / 间距 / 角度滑块）、`WatermarkSettings` 存入 store（含 `resetAll` 复位）；新增 `DEFAULT_WATERMARK_*` / `WATERMARK_*_RANGE_*` 常量（TD17–TD19） | R20 | 功能层 |
 | 2026-10-14 | `verify:logic` 新增 39 项水印断言（58 → 97 项）；`verify:e2e` 新增 13 项水印端到端断言（28 → 41 项） | R20 | 验证能力 |
 | 2026-10-14 | 同步文档：需求文档新增 R20 并把「自动添加水印」移出非目标、开发方案补充 TD17–TD19 与「关键实现细节 §9」、AGENTS.md 常量表、`README.md`、`docs/使用说明.md` | R20 | 消除文档漂移 |
+| 2026-10-14 | 新增 R21 页脚：`constants/project.ts`（署名与仓库地址的唯一真值）、`components/AppFooter.tsx`（作者 + 仓库链接 + 本地处理说明，顶部细线分隔）、`HomePage` 挂载在栅格 `Row` 之外的容器末尾 | R21 | 界面层 |
+| 2026-10-14 | `verify:logic` 新增 3 项署名断言（97 → 100 项）；`verify:e2e` 新增 3 项页脚断言（41 → 44 项） | R21 | 验证能力 |
+| 2026-10-14 | 同步文档：需求文档新增 R21、开发方案补充映射行与模块规划、AGENTS.md 安全边界新增页脚链接约束 | R21 | 消除文档漂移 |
 
 ---
 
@@ -431,8 +437,8 @@ pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/
 | 2026-10-14 | 静态检查 | `pnpm lint`（ESLint 9 flat config，含圈复杂度 ≤ 10、max-depth ≤ 4） | 通过，0 错误 0 警告 |
 | 2026-10-14 | 生产构建 | `pnpm build` | 通过，jsPDF 按动态 import 拆分为独立 chunk |
 | 2026-10-14 | 格式一致性 | `pnpm format:check` | 通过 |
-| 2026-10-14 | 尺寸与版式逻辑 | `pnpm verify:logic`（esbuild 打包纯逻辑模块后在 Node 断言） | 97/97 通过：吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0、正反面间距默认 10mm / 20mm / 0mm / NaN、A4@300DPI=2480×3508、88×56@300DPI=1039×661、上下/左右排列坐标、距边对齐、单面居中、2 份叠放无重叠、越界钳制、默认裁剪居中、有效 DPI 判据、文件名、上传校验 |
-| 2026-10-14 | 浏览器端全流程 | `pnpm verify:e2e`（CDP 驱动无头 Chrome：合成测试身份证图 → 上传正反面 → 排版 → 真实鼠标拖拽 → 导出） | 41/41 通过：参考标尺默认显示且可关闭、拖拽中绘制参考线且松开后清除、横向吸附到 10mm 安全边距线（`offset.xMm = -51`）、纵向吸附到 148.5mm 页面中心线（`offset.yMm = 61`）、默认间距 10mm、A4 预览实测间距 9.69mm、A4 预览 520×735（比例 210:297）且已绘制内容、PDF `MediaBox=[0 0 595.28 841.89]` 即 210×297mm、PDF 内嵌位图 2480×3508、导出 PNG 实测 2480×3508、2 份后纸张内容翻倍、左右排列正常、Network 域无任何跨域请求、无控制台错误 |
+| 2026-10-14 | 尺寸与版式逻辑 | `pnpm verify:logic`（esbuild 打包纯逻辑模块后在 Node 断言） | 100/100 通过：吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0、正反面间距默认 10mm / 20mm / 0mm / NaN、A4@300DPI=2480×3508、88×56@300DPI=1039×661、上下/左右排列坐标、距边对齐、单面居中、2 份叠放无重叠、越界钳制、默认裁剪居中、有效 DPI 判据、文件名、上传校验 |
+| 2026-10-14 | 浏览器端全流程 | `pnpm verify:e2e`（CDP 驱动无头 Chrome：合成测试身份证图 → 上传正反面 → 排版 → 真实鼠标拖拽 → 导出） | 44/44 通过：参考标尺默认显示且可关闭、拖拽中绘制参考线且松开后清除、横向吸附到 10mm 安全边距线（`offset.xMm = -51`）、纵向吸附到 148.5mm 页面中心线（`offset.yMm = 61`）、默认间距 10mm、A4 预览实测间距 9.69mm、A4 预览 520×735（比例 210:297）且已绘制内容、PDF `MediaBox=[0 0 595.28 841.89]` 即 210×297mm、PDF 内嵌位图 2480×3508、导出 PNG 实测 2480×3508、2 份后纸张内容翻倍、左右排列正常、Network 域无任何跨域请求、无控制台错误 |
 | 2026-10-14 | 视觉核对 | 无头 Chrome 截图人工确认 | 通过：上下排列居中、左右排列 2 份版式、成品预览与设置面板渲染均正确 |
 | 2026-10-14 | 裁剪编辑回归（缺陷复验） | `pnpm verify:crop`（CDP 驱动无头 Chrome：上传 4000×3000 测试图 → 拖动 → 放大至 3.94 倍 → 旋转微调 10.7° → 右转 90° → 复位 → 关闭弹窗） | 通过，8/8 阶段：A4 画面着色像素 27930–30302、面位预览 10240–11088、裁剪区域始终为有限正数。修复前第 8 阶段 A4=0 且 cropArea 为 null，修复后未复现 |
 | 2026-10-14 | 全量回归（含间距与拖拽对齐辅助） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 58/58、E2E 28/28、裁剪回归 8/8（水印改动前的基线） |
@@ -443,3 +449,6 @@ pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/
 | 2026-10-14 | 水印浏览器实测 | `pnpm verify:e2e` 新增 13 项断言（CDP 驱动无头 Chrome，真实操作面板控件） | 通过：水印默认关闭、界面上输入 16 个字被截断为 15 个字、面板开关可启用水印、启用后顶部白边出现水印墨迹、全页墨迹增加、页面画布仍为 520 × 735（尺寸不变）、间距 20mm 变密 / 100mm 变疏、角度 -30° 与 0° 的墨迹分布不同、字号 20mm 墨迹增加、关闭后白边墨迹归零且全页墨迹回到启用前水平 |
 | 2026-10-14 | 水印视觉核对 | 无头 Chrome 截图 `/private/tmp/watermark-e2e.png` 人工确认 | 通过：整页斜向平铺「仅供办理业务使用」，压在两张身份证图像**之上**，密度均匀、四角均有覆盖、无明显错位；水印面板显示 `8 / 15` 字数与字号 / 间距 / 角度三个控件 |
 | 2026-10-14 | 全量回归（含水印） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 97/97、E2E 41/41、裁剪回归 8/8（水印默认关闭，未影响既有链路） |
+| 2026-10-14 | 页脚署名与项目地址 | `pnpm verify:logic` + `pnpm verify:e2e`（CDP 驱动无头 Chrome） | 通过：作者非空、仓库地址为 HTTPS 的 GitHub 地址、展示用短地址与真实地址一致；浏览器实测页脚文案含「项目作者：jsmond2016」、链接 `href` 指向仓库且 `target="_blank"` / `rel` 含 `noopener noreferrer`、页脚内无任何外部资源；全流程仍无第三方请求 |
+| 2026-10-14 | 全量回归（含水印与页脚） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 100/100、E2E 44/44、裁剪回归 8/8 |
+| 2026-10-14 | 页脚视觉核对 | 无头 Chrome 截图 `/private/tmp/footer-e2e.png` 人工确认 | 通过：页面底部居中展示作者、仓库地址与「全程本地处理，不上传、不收集任何数据」，顶部细线分隔，宽度自适应且不遮挡导出相关操作 |

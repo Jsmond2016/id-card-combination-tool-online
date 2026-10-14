@@ -2,6 +2,7 @@ import { useEventListener, useMemoizedFn } from 'ahooks';
 import { App as AntdApp, Card, Col, Flex, Row, Typography } from 'antd';
 
 import { A4Preview } from '@/components/A4Preview';
+import { AppFooter } from '@/components/AppFooter';
 import { AppHeader } from '@/components/AppHeader';
 import { ExportPanel } from '@/components/ExportPanel';
 import { FaceCard } from '@/components/FaceCard';
@@ -107,6 +108,8 @@ export default function HomePage() {
               </Flex>
             </Col>
           </Row>
+
+          <AppFooter />
         </Flex>
       </div>
     </div>

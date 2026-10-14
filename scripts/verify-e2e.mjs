@@ -317,6 +317,23 @@ const WATERMARK_FLOW = `(async () => {
   };
 })()`;
 
+/** 页脚（R21）探针：署名、仓库链接属性，以及是否引入了外部资源 */
+const FOOTER_PROBE = `(() => {
+  const footer = document.querySelector('footer');
+  const link = footer ? footer.querySelector('a[href^="https://github.com/"]') : null;
+  if (!footer || !link) {
+    return { available: false, hasFooter: Boolean(footer), hasLink: Boolean(link) };
+  }
+  return {
+    available: true,
+    text: footer.textContent,
+    href: link.getAttribute('href'),
+    target: link.getAttribute('target'),
+    rel: link.getAttribute('rel') ?? '',
+    externalResources: footer.querySelectorAll('img, iframe, script').length,
+  };
+})()`;
+
 const findDownload = (directory) => {
   const files = readdirSync(directory).filter((name) => name.endsWith('.pdf'));
   return files.length > 0 ? join(directory, files[0]) : null;
@@ -484,6 +501,29 @@ const main = async () => {
     );
     await client.evaluate(TOGGLE_RULER(true));
     await sleep(300);
+
+    // R21：页脚署名与项目地址
+    const footer = await client.evaluate(FOOTER_PROBE);
+    record(
+      '页脚展示项目作者与项目地址',
+      footer.available === true && footer.text.includes('项目作者：jsmond2016'),
+      footer.available ? footer.text.slice(0, 80) : '未找到页脚或仓库链接',
+    );
+    if (footer.available) {
+      record(
+        '页脚链接指向 GitHub 仓库并以新窗口打开',
+        footer.href === 'https://github.com/Jsmond2016/id-card-combination-tool-online' &&
+          footer.target === '_blank' &&
+          footer.rel.includes('noopener') &&
+          footer.rel.includes('noreferrer'),
+        `href=${footer.href} target=${footer.target} rel=${footer.rel}`,
+      );
+      record(
+        '页脚未引入任何外部资源（图片 / 脚本 / 内嵌页）',
+        footer.externalResources === 0,
+        `外部资源 ${footer.externalResources} 个`,
+      );
+    }
 
     // R20：水印（UI 联动 + 参数生效 + 不改变页面尺寸）
     const watermark = await client.evaluate(WATERMARK_FLOW);

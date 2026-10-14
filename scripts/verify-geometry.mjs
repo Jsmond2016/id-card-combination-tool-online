@@ -21,6 +21,9 @@ const {
   RULER_TICK_MM,
   SNAP_THRESHOLD_MM,
   WATERMARK_TEXT_MAX_LENGTH,
+  PROJECT_AUTHOR,
+  PROJECT_REPO_URL,
+  PROJECT_REPO_LABEL,
   DEFAULT_WATERMARK_FONT_SIZE_MM,
   DEFAULT_WATERMARK_SPACING_MM,
   DEFAULT_WATERMARK_ANGLE_DEG,
@@ -460,6 +463,15 @@ const densestParams = resolveWatermarkDrawParams({
   spacingMm: 20,
 });
 check('最密配置下瓦片数量有上界（< 400）', densestParams.layout.tiles.length < 400, true);
+
+// --- R21：页脚署名与项目地址 ---
+check('项目作者非空', PROJECT_AUTHOR.trim().length > 0, true);
+check(
+  '项目地址为 HTTPS 的 GitHub 仓库地址',
+  /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/.test(PROJECT_REPO_URL),
+  true,
+);
+check('展示用短地址与真实地址一致', PROJECT_REPO_LABEL, PROJECT_REPO_URL.replace('https://', ''));
 
 if (failures.length > 0) {
   console.error(`\n✗ ${failures.length} 项断言失败：`);
