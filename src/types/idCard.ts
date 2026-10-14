@@ -89,7 +89,7 @@ export interface LayoutSettings {
 /** 页面级水印设置（R20），仅影响观感，不参与尺寸计算 */
 export interface WatermarkSettings {
   enabled: boolean;
-  /** 水印文字，最长 15 个字，超出由 store 自动截断 */
+  /** 水印文字，最长 32 个字，超出由 store 自动截断 */
   text: string;
   /** 单个水印的字号（mm），决定水印大小 */
   fontSizeMm: number;

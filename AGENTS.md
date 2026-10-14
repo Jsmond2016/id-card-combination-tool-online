@@ -17,12 +17,14 @@
 | A4 | 210mm × 297mm |
 | 默认输出精度 | 300 DPI（A4 = 2480 × 3508 px） |
 | 安全边距 | 10mm（版式）/ 5mm（拖动钳制） |
-| 正反面间距（默认 / 可调范围） | 10mm / 2–30mm（用户可调，`DEFAULT_FACE_GAP_MM`） |
+| 正反面间距（默认 / 可调范围） | 20mm / 2–30mm（用户可调，`DEFAULT_FACE_GAP_MM`） |
 | 每页多份时的份与份间距 | 8mm（`COPY_GAP_MM`） |
 | 预览参考标尺刻度 / 主刻度 | 10mm / 50mm（`RULER_TICK_MM` / `RULER_MAJOR_TICK_MM`） |
 | 拖拽吸附阈值 | 2.5mm（`SNAP_THRESHOLD_MM`） |
-| 水印文字长度上限 | 15 个字（`WATERMARK_TEXT_MAX_LENGTH`，按码点计数） |
-| 水印字号（大小）默认 / 可调范围 | 8mm / 4–24mm（`DEFAULT_WATERMARK_FONT_SIZE_MM`） |
+| 水印文字长度上限 | 32 个字（`WATERMARK_TEXT_MAX_LENGTH`，按码点计数） |
+| 水印字号（大小）默认 / 可调范围 / 步进 | 8mm / 4–24mm / 0.5mm（`DEFAULT_WATERMARK_FONT_SIZE_MM`、`WATERMARK_FONT_SIZE_STEP_MM`） |
+| 水印字号快捷预设 | 6 / 8 / 12 / 16mm（`WATERMARK_FONT_SIZE_PRESETS_MM`） |
+| 水印卡片折叠 | 默认折叠（`Collapse` 无 `defaultActiveKey`），标题行显示状态摘要且必须 `truncate` |
 | 水印平铺间距（密度）默认 / 可调范围 | 50mm / 20–120mm（`DEFAULT_WATERMARK_SPACING_MM`，数值越小越密） |
 | 水印倾斜角度默认 / 可调范围 | -30° / -90°–90°（`DEFAULT_WATERMARK_ANGLE_DEG`，正值顺时针） |
 | 水印透明度 / 颜色 | 0.18 / `#000000`（固定常量 `WATERMARK_OPACITY` / `WATERMARK_COLOR`，暂不开放为可调项） |
@@ -46,6 +48,7 @@
 - 平铺布局在毫米空间按「覆盖页面外接圆」计算（`utils/watermark.ts`），结果与倾斜角度无关，禁止改成按像素或按角度分类推导。
 - 文字宽度用估算函数而非 `measureText`，以保证布局可在 Node 中断言；参数在绘制前钳制到上表区间。
 - 水印**不得**参与任何尺寸计算：身份证尺寸与导出页面尺寸（A4 210 × 297mm）不随水印变化。
+- 水印面板**默认折叠**（`Collapse` 不传 `defaultActiveKey`）；折叠态标题行只显示状态摘要，摘要必须 `truncate`（窄屏不得撑出横向滚动条）。字号滑块的步进与快捷预设必须取自常量，禁止在组件内写死数值。
 
 ## 技术栈约束
 
@@ -79,7 +82,8 @@ src/
 2. antd 卡片标题默认 `nowrap` + 省略号：窄屏下若 `extra` 文案偏长必须隐藏（`hidden sm:inline`），不要把长文案塞进卡头。
 3. 长且无空格的文本（URL、文件名）必须显式允许断行（`break-all`）。
 4. 不得用整页 `overflow-x: hidden` 兜底：会把 `body` 变成滚动容器而破坏 `lg:sticky`，且会静默裁掉真实溢出。
-5. 移动端视口回归由 `pnpm verify:e2e` 覆盖：320 / 360 / 390px 下整页与裁剪弹窗都不得出现横向滚动条，卡片标题不得被截断。详见开发方案文档「关键实现细节 §10」。
+5. 开关等窄控件必须用 `FieldRow inline`（标签在左、控件在右）：长标签独占一行、开关孤零零挂在下一行属于缺陷。详细说明写进 `hint`，不要把解释塞进 `label`。
+6. 移动端视口回归由 `pnpm verify:e2e` 覆盖：320 / 360 / 390px 下整页与裁剪弹窗都不得出现横向滚动条，卡片标题不得被截断。详见开发方案文档「关键实现细节 §10」。
 
 ## 安全边界（最高优先级）
 

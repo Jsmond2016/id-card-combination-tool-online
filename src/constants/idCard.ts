@@ -57,10 +57,10 @@ export const MIN_RECOMMENDED_DPI = 300;
  *
  * 取值依据：GB 11643 / ISO 7810 ID-1 只规定身份证卡体为 85.6 × 54mm，
  * 并未规定复印件上正反面之间的间距；市面同类工具（lettimepassby/idcard-print、
- * Swkings/photo-cut-merge 等）均以 10mm 作为默认值，故沿用 10mm。
- * 用户可在「排版设置」中自行调节。
+ * Swkings/photo-cut-merge 等）以 10mm 为默认值，本工具按用户要求取 20mm。
+ * 用户可在「排版设置」中按 2–30mm 自行调节。
  */
-export const DEFAULT_FACE_GAP_MM = 10;
+export const DEFAULT_FACE_GAP_MM = 20;
 /** 正反面间距的可调范围（mm），取到上限时版式可能已溢出 A4，由溢出提示兜底 */
 export const FACE_GAP_RANGE_MM = { min: 2, max: 30 } as const;
 /** 每页多份时，份与份之间的间距（mm） */
@@ -101,10 +101,13 @@ export const DEFAULT_EDGE_OFFSET_PERCENT = 0;
 export const DEFAULT_WATERMARK_ENABLED = false;
 export const DEFAULT_WATERMARK_TEXT = '仅供办理业务使用';
 /** 水印文字最大长度（按码点计数，中文一个字算一个，超出自动截断） */
-export const WATERMARK_TEXT_MAX_LENGTH = 15;
-/** 水印字号可调范围（mm） */
+export const WATERMARK_TEXT_MAX_LENGTH = 32;
+/** 水印字号可调范围（mm）与调节步进 */
 export const WATERMARK_FONT_SIZE_RANGE_MM = { min: 4, max: 24 } as const;
+export const WATERMARK_FONT_SIZE_STEP_MM = 0.5;
 export const DEFAULT_WATERMARK_FONT_SIZE_MM = 8;
+/** 字号快捷预设（mm）：落在可调范围内，供面板一键切换 */
+export const WATERMARK_FONT_SIZE_PRESETS_MM = [6, 8, 12, 16] as const;
 /** 平铺间距可调范围（mm）：相邻两个水印之间的空隙，数值越小越密 */
 export const WATERMARK_SPACING_RANGE_MM = { min: 20, max: 120 } as const;
 export const DEFAULT_WATERMARK_SPACING_MM = 50;

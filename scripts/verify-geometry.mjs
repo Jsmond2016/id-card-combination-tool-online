@@ -21,6 +21,9 @@ const {
   RULER_TICK_MM,
   SNAP_THRESHOLD_MM,
   WATERMARK_TEXT_MAX_LENGTH,
+  WATERMARK_FONT_SIZE_RANGE_MM,
+  WATERMARK_FONT_SIZE_STEP_MM,
+  WATERMARK_FONT_SIZE_PRESETS_MM,
   PROJECT_AUTHOR,
   PROJECT_REPO_URL,
   PROJECT_REPO_LABEL,
@@ -90,7 +93,7 @@ check('pxPerMm@300DPI', dpiToPxPerMm(300), 300 / 25.4);
 const base = { copies: 1, offsets: {}, gapMm: DEFAULT_FACE_GAP_MM };
 
 // --- R7：正反面间距默认值与可调性 ---
-check('默认正反面间距为 10mm', DEFAULT_FACE_GAP_MM, 10);
+check('默认正反面间距为 20mm', DEFAULT_FACE_GAP_MM, 20);
 
 // --- R7：上下排列居中 ---
 const vertical = buildLayoutPlan({
@@ -100,31 +103,31 @@ const vertical = buildLayoutPlan({
   preset: COPY_88x56,
   kinds: ['front', 'back'],
 });
-check('上下排列分组尺寸', [vertical.groupSize.widthMm, vertical.groupSize.heightMm], [88, 122]);
+check('上下排列分组尺寸', [vertical.groupSize.widthMm, vertical.groupSize.heightMm], [88, 132]);
 check('上下排列坐标', vertical.placed, [
-  { kind: 'front', xMm: 61, yMm: 87.5 },
-  { kind: 'back', xMm: 61, yMm: 153.5 },
+  { kind: 'front', xMm: 61, yMm: 82.5 },
+  { kind: 'back', xMm: 61, yMm: 158.5 },
 ]);
 check('上下排列不溢出', vertical.overflow, false);
 check(
   '正反面实际间距等于设置值',
   vertical.placed[1].yMm - (vertical.placed[0].yMm + COPY_88x56.heightMm),
-  10,
+  20,
 );
 
 // --- R7：间距可调 ---
 const wideGap = buildLayoutPlan({
   ...base,
-  gapMm: 20,
+  gapMm: 25,
   mode: 'vertical',
   align: 'center',
   preset: COPY_88x56,
   kinds: ['front', 'back'],
 });
-check('间距 20mm 时分组高度', wideGap.groupSize.heightMm, 132);
-check('间距 20mm 时坐标随之变化', wideGap.placed, [
-  { kind: 'front', xMm: 61, yMm: 82.5 },
-  { kind: 'back', xMm: 61, yMm: 158.5 },
+check('间距 25mm 时分组高度', wideGap.groupSize.heightMm, 137);
+check('间距 25mm 时坐标随之变化', wideGap.placed, [
+  { kind: 'front', xMm: 61, yMm: 80 },
+  { kind: 'back', xMm: 61, yMm: 161 },
 ]);
 const zeroGap = buildLayoutPlan({
   ...base,
@@ -143,7 +146,7 @@ const nanGap = buildLayoutPlan({
   preset: COPY_88x56,
   kinds: ['front', 'back'],
 });
-check('间距为 NaN 时回退默认值', nanGap.groupSize.heightMm, 122);
+check('间距为 NaN 时回退默认值', nanGap.groupSize.heightMm, 132);
 
 // --- R7：左右排列居中 ---
 const horizontal = buildLayoutPlan({
@@ -153,10 +156,10 @@ const horizontal = buildLayoutPlan({
   preset: COPY_88x56,
   kinds: ['front', 'back'],
 });
-check('左右排列分组尺寸', [horizontal.groupSize.widthMm, horizontal.groupSize.heightMm], [186, 56]);
+check('左右排列分组尺寸', [horizontal.groupSize.widthMm, horizontal.groupSize.heightMm], [196, 56]);
 check('左右排列坐标', horizontal.placed, [
-  { kind: 'front', xMm: 12, yMm: 120.5 },
-  { kind: 'back', xMm: 110, yMm: 120.5 },
+  { kind: 'front', xMm: 7, yMm: 120.5 },
+  { kind: 'back', xMm: 115, yMm: 120.5 },
 ]);
 
 // --- R12/R7：距边对齐 ---
@@ -189,12 +192,12 @@ const twoCopies = buildLayoutPlan({
   preset: COPY_88x56,
   kinds: ['front', 'back'],
 });
-check('2 份内容高度', twoCopies.contentSize.heightMm, 252);
+check('2 份内容高度', twoCopies.contentSize.heightMm, 272);
 check('2 份坐标', twoCopies.placed, [
-  { kind: 'front', xMm: 61, yMm: 22.5 },
+  { kind: 'front', xMm: 61, yMm: 12.5 },
   { kind: 'back', xMm: 61, yMm: 88.5 },
   { kind: 'front', xMm: 61, yMm: 152.5 },
-  { kind: 'back', xMm: 61, yMm: 218.5 },
+  { kind: 'back', xMm: 61, yMm: 228.5 },
 ]);
 check('2 份不溢出', twoCopies.overflow, false);
 const secondFront = twoCopies.placed[2];
@@ -210,7 +213,7 @@ const offsetPlan = buildLayoutPlan({
   kinds: ['front', 'back'],
   offsets: { front: { xMm: 10, yMm: -20 }, back: { xMm: -100, yMm: 1000 } },
 });
-check('偏移生效且不改变尺寸', [offsetPlan.placed[0].xMm, offsetPlan.placed[0].yMm], [71, 67.5]);
+check('偏移生效且不改变尺寸', [offsetPlan.placed[0].xMm, offsetPlan.placed[0].yMm], [71, 62.5]);
 check('越界钳制到安全区', [offsetPlan.placed[1].xMm, offsetPlan.placed[1].yMm], [5, 236]);
 check('clampFacePosition 上界', clampFacePosition(1000, 1000, COPY_88x56), {
   xMm: 117,
@@ -297,15 +300,34 @@ check(
 );
 
 // --- R20：水印文字规范化 ---
-check('水印文字上限为 15 个字', WATERMARK_TEXT_MAX_LENGTH, 15);
+check('水印文字上限为 32 个字', WATERMARK_TEXT_MAX_LENGTH, 32);
+check('水印字号步进为 0.5mm', WATERMARK_FONT_SIZE_STEP_MM, 0.5);
+check(
+  '水印字号预设都落在可调范围内',
+  WATERMARK_FONT_SIZE_PRESETS_MM.every(
+    (size) => size >= WATERMARK_FONT_SIZE_RANGE_MM.min && size <= WATERMARK_FONT_SIZE_RANGE_MM.max,
+  ),
+  true,
+);
+check('水印字号预设含默认值 8mm', WATERMARK_FONT_SIZE_PRESETS_MM.includes(8), true);
+check(
+  '预设排序唯一且不含重复项',
+  new Set(WATERMARK_FONT_SIZE_PRESETS_MM).size === WATERMARK_FONT_SIZE_PRESETS_MM.length &&
+    WATERMARK_FONT_SIZE_PRESETS_MM.every(
+      (size, index) => index === 0 || size > WATERMARK_FONT_SIZE_PRESETS_MM[index - 1],
+    ),
+  true,
+);
+check('32 个字的水印文字保持完整', Array.from(normalizeWatermarkText('一'.repeat(32))).length, 32);
+check('超过 32 个字才截断', Array.from(normalizeWatermarkText('一'.repeat(40))).length, 32);
 check('水印默认字号为 8mm', DEFAULT_WATERMARK_FONT_SIZE_MM, 8);
 check('水印默认平铺间距为 50mm', DEFAULT_WATERMARK_SPACING_MM, 50);
 check('水印默认倾斜角为 -30°', DEFAULT_WATERMARK_ANGLE_DEG, -30);
 check('水印默认文案可用', normalizeWatermarkText('仅供办理业务使用'), '仅供办理业务使用');
 check(
-  '超长文字按码点截断到 15 个字',
-  normalizeWatermarkText('仅供办理业务使用仅供办理业务使用'),
-  '仅供办理业务使用仅供办理业务使',
+  '超长文字按码点截断到 32 个字',
+  normalizeWatermarkText('仅供办理业务使用'.repeat(5)),
+  '仅供办理业务使用'.repeat(4),
 );
 check(
   '换行与连续空白被折叠',
@@ -315,8 +337,8 @@ check(
 check('空文字保持为空', normalizeWatermarkText('   \n '), '');
 check(
   '代理对（emoji）按一个字计数',
-  Array.from(normalizeWatermarkText('🎫'.repeat(20))).length,
-  15,
+  Array.from(normalizeWatermarkText('🎫'.repeat(40))).length,
+  32,
 );
 
 // --- R20：文本包围盒估算 ---
@@ -462,10 +484,10 @@ check(
 );
 check(
   '超长文字在绘制前再次截断',
-  resolveWatermarkDrawParams({ ...watermarkBase, text: '仅供办理业务使用仅供办理业务使用' }).text,
-  '仅供办理业务使用仅供办理业务使',
+  resolveWatermarkDrawParams({ ...watermarkBase, text: '仅供办理业务使用'.repeat(5) }).text,
+  '仅供办理业务使用'.repeat(4),
 );
-// 最密配置：字号取下限 + 间距取下限 + 15 个半角字符
+// 最密配置：字号取下限 + 间距取下限 + 32 个半角字符
 const densestParams = resolveWatermarkDrawParams({
   ...watermarkBase,
   text: 'iiiiiiiiiiiiiii',

@@ -65,7 +65,7 @@ flowchart LR
 | R4 | `FaceCard` 提供「重新上传」（Upload 包装按钮）与「移除」（`Popconfirm` 二次确认），移除时释放图片缓存 | `components/FaceCard.tsx`、`stores/useIdCardStore.ts` | 代码路径完整；无自动化交互验证 | 已实现 |
 | R5 | `CropEditor` 基于 `react-easy-crop`：`aspect = 规格宽/高`；缩放滑块；整角 ±90° 按钮；细调滑块 ±45°（步进 0.1°）；`objectFit="contain"`；`onCropComplete` 以 `isValidCropArea` 拦截 NaN；渲染层缺裁剪时回退 `computeDefaultCrop` | `components/CropEditor.tsx`、`utils/image.ts`、`utils/renderFace.ts`、`stores/useIdCardStore.ts` | `pnpm verify:crop` 覆盖上传 → 拖动 → 放大 → 旋转微调 → 右转 90° → 复位 → 关闭弹窗 8 个阶段，断言 A4 与面位预览始终有画面、裁剪区域始终为有限正数 | 已验证 |
 | R6 | `constants/idCard.ts` 定义 `SPEC_PRESETS`、`mmToPx`、`dpiToPxPerMm`；输出画布尺寸由毫米 × DPI 推导，UI 不暴露自由尺寸 | `constants/idCard.ts`、`utils/renderA4.ts` | 断言：A4@300DPI=2480×3508、88×56@300DPI=1039×661；浏览器实测 PDF 页面为 210 × 297mm | 已验证 |
-| R7 | `utils/geometry.buildLayoutPlan` 纯函数在毫米空间计算分组与坐标，正反面间距由 `layout.gapMm` 驱动（默认 `DEFAULT_FACE_GAP_MM` = 10mm，异常值回退默认）；`LayoutPanel` 提供版式/对齐/份数/间距控件 | `utils/geometry.ts`、`components/LayoutPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts` | 断言覆盖上下/左右排列坐标、间距 10/20/0/NaN 四种取值、距边对齐、溢出标记；浏览器实测修改间距后 A4 预览的实际像素间隔随之变化（默认实测 9.69mm、改为 25mm 后实测约 24.9mm） | 已验证 |
+| R7 | `utils/geometry.buildLayoutPlan` 纯函数在毫米空间计算分组与坐标，正反面间距由 `layout.gapMm` 驱动（默认 `DEFAULT_FACE_GAP_MM` = 10mm，异常值回退默认）；`LayoutPanel` 提供版式/对齐/份数/间距控件 | `utils/geometry.ts`、`components/LayoutPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts` | 断言覆盖上下/左右排列坐标、间距 20（默认）/25/0/NaN 四种取值、距边对齐、溢出标记；浏览器实测修改间距后 A4 预览的实际像素间隔随之变化（默认实测 9.69mm、改为 25mm 后实测约 24.9mm） | 已验证 |
 | R8 | `A4Preview` 以 Pointer Events 实现拖动，位移换算为毫米写入 `face.offset`；`LayoutPanel` 提供 X/Y `InputNumber`（步进 0.5mm）与「复位位置」；越界经 `clampFacePosition` 钳制 | `components/A4Preview.tsx`、`utils/geometry.ts` | 断言：偏移生效且尺寸不变、越界钳制到 [5, 217]/[5, 236]；拖动交互未自动化验证 | 已实现 |
 | R9 | `buildLayoutPlan` 支持 `copies: 1 \| 2`，多份沿纵向以 `copyGap` 叠放并整体垂直居中 | `utils/geometry.ts`、`components/LayoutPanel.tsx` | 断言：2 份内容高 244mm、四个面位坐标互不重叠；浏览器实测 2 份后着色像素约翻倍 | 已验证 |
 | R10 | `canvasToBlob` + `downloadBlob`；A4 画布像素由 `dpiToPxPerMm` 决定 | `utils/export.ts`、`hooks/useExport.ts` | 浏览器实测导出的 PNG 为 2480 × 3508 | 已验证 |
@@ -77,7 +77,7 @@ flowchart LR
 | R17 | `ExportPanel` 提供 150 / 300 DPI 分段控件，默认 300 | `components/ExportPanel.tsx`、`constants/idCard.ts` | 断言：150 DPI 时 A4 = 1240 × 1754；300 DPI 已浏览器实测 | 已验证 |
 | R18 | `buildFileName(extension, now?)` 生成 `身份证复印件_YYYYMMDD_HHmm.ext` | `utils/export.ts` | 断言：固定时间下输出 `身份证复印件_20261014_0905.pdf` | 已验证 |
 | R19 | `A4Preview` 用 CSS flex 排布「上/左标尺 + 纸张画布 + 参考线叠加画布」；标尺刻度与高亮区间用百分比定位，随预览尺寸自适应；拖动时 `utils/alignment.resolveSnap` 在毫米空间计算吸附位置与参考线，参考线画在独立的叠加画布上（`pointer-events: none`），避免污染导出画布 | `components/A4Preview.tsx`、`utils/alignment.ts`、`stores/useIdCardStore.ts` | 断言覆盖吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0；浏览器实测真实鼠标拖拽后 `offset` 精确落在参考线上（横向 -51mm → 左边缘 10mm、纵向 +61mm → 上边缘 148.5mm），拖拽中叠加画布有参考线像素、松开后清零，关闭开关后标尺不再占位 | 已验证 |
-| R20 | `utils/watermark.ts` 纯函数：`normalizeWatermarkText`（折叠空白 + 按码点截断 15 字）、`estimateTextWidthMm` / `estimateTextHeightMm`（宽度与行高估算）、`computeWatermarkLayout`（覆盖外接圆的瓦片坐标）、`resolveWatermarkDrawParams`（参数钳制 + 可绘制性判定）与绘制函数 `drawWatermark`；`composeA4Canvas` 在面位之后、校准尺之前调用；`WatermarkPanel` 提供开关、文字输入（`maxLength` 15 + `showCount`）与字号 / 间距 / 角度三个滑块；`WatermarkSettings` 存入 Zustand store（TD17–TD19） | `utils/watermark.ts`、`utils/renderA4.ts`、`components/WatermarkPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts`、`constants/idCard.ts` | 断言覆盖文字折叠与截断、宽度 / 行高估算、瓦片步进与四角覆盖、密度单调性、参数钳制、空文字与超小画布不绘制、瓦片数量上界；浏览器实测 UI 开关与输入联动、启用后白边出现墨迹、密度 / 角度 / 字号改动都会改变预览墨迹、关闭后墨迹归零 | 已验证 |
+| R20 | `utils/watermark.ts` 纯函数：`normalizeWatermarkText`（折叠空白 + 按码点截断 32 字）、`estimateTextWidthMm` / `estimateTextHeightMm`（宽度与行高估算）、`computeWatermarkLayout`（覆盖外接圆的瓦片坐标）、`resolveWatermarkDrawParams`（参数钳制 + 可绘制性判定）与绘制函数 `drawWatermark`；`composeA4Canvas` 在面位之后、校准尺之前调用；`WatermarkPanel` 用 `Collapse` 承载并**默认折叠**（折叠时标题行显示「未开启 / 已开启 + 文字 + 字号」摘要，窄屏用 `truncate` 防溢出），展开后提供开关、文字输入（`maxLength` 32 + `showCount`）与字号 / 间距 / 角度三个滑块，字号滑块步进 0.5mm 并附 6 / 8 / 12 / 16mm 快捷预设；`WatermarkSettings` 存入 Zustand store（TD17–TD19） | `utils/watermark.ts`、`utils/renderA4.ts`、`components/WatermarkPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts`、`constants/idCard.ts` | 断言覆盖文字折叠与截断、宽度 / 行高估算、瓦片步进与四角覆盖、密度单调性、参数钳制、空文字与超小画布不绘制、瓦片数量上界；浏览器实测 UI 开关与输入联动、启用后白边出现墨迹、密度 / 角度 / 字号改动都会改变预览墨迹、关闭后墨迹归零、面板默认折叠且展开后控件可见、字号快捷预设点击后写入 store（R20 优化补测） | 已验证 |
 | R21 | `constants/project.ts` 集中存放 `PROJECT_AUTHOR` / `PROJECT_REPO_URL` / `PROJECT_REPO_LABEL`；`AppFooter` 用 antd `Typography.Link` 渲染普通 `<a target="_blank" rel="noopener noreferrer">`，由 `HomePage` 挂在栅格 `Row` **之外**的容器末尾（避免受 A4 预览列 `sticky` 影响） | `constants/project.ts`、`components/AppFooter.tsx`、`pages/HomePage.tsx` | 断言：作者非空、仓库地址为 HTTPS 的 GitHub 地址、展示用短地址与真实地址一致；浏览器实测页脚文案含作者、链接 `href` / `target` / `rel` 正确、页脚内无 `img` / `script` / `iframe`，且全流程仍无第三方请求 | 已验证 |
 | R22 | 新增 `utils/rectify.ts` 纯函数模块：`createDefaultQuad`（默认四角）、`constrainQuadCorner`（凸性约束，结构性排除自交）、`isValidQuad`（有限性 / 界内 / 凸性 / 面积校验）、`resolveHomography`（高斯消元解 8 元方程组）、`warpQuadToPixels`（逐像素反向映射 + 双线性插值）、`applyEdgeOffset`（边缘微调）、`resolveCardRect`（卡面真实比例居中补白）、`renderRectifiedFace`（canvas 层封装 + 采样源降采样与缓存）；`renderFaceCanvas` 在 `rectify.enabled` 时改走矫正链路；`CropEditor` 顶部新增「矩形裁剪 / 透视矫正」分段控件，矫正模式渲染 `PerspectiveEditor`（SVG 四点手柄 + 暗化遮罩 + 边缘微调滑块），`FaceState` 新增 `rectify` 字段（TD20–TD23） | `utils/rectify.ts`、`utils/renderFace.ts`、`components/CropEditor.tsx`、`components/PerspectiveEditor.tsx`、`stores/useIdCardStore.ts`、`hooks/useFaceEditor.ts`、`types/idCard.ts`、`constants/idCard.ts` | `pnpm verify:logic` 新增 31 项断言（100 → 131）：单应矩阵映射误差 < 1e-6、矩形四角逐像素等价于原图裁剪、**斜拍梯形矫正后背景像素为 0**、四角与对角线交点落位、退化四边形被拒、凸性约束不误挡合法梯形、边缘微调面积与钳制、卡面补白尺寸；`pnpm verify:rectify` 6/6：整幅裁剪桌面色 23778 → 贴合裁剪 8902 → 矫正后 **0**，卡面内容 24306 仍在 | 已验证 |
 
@@ -100,12 +100,12 @@ flowchart LR
 | TD11 | Zustand 单 store 管理跨组件状态；`patchFace` 采用**浅合并**（`Partial<FaceState>`），嵌套对象（`offset`、`croppedAreaPixels`）整体传入；Ramda 只用于纯数据变换（`clamp`、`fromPairs`） | 编辑参数与图片状态需要跨组件共享（上传面板、裁剪器、A4 预览、导出面板），单 store 避免多层回调透传；嵌套对象整体传入可由类型系统拦截"只传半个 offset"的写法，避免旧字段残留造成状态污染 | 深合并（`mergeDeepLeft`）：类型上无法约束"半截嵌套对象"，只更新 `offset.xMm` 会静默沿用旧 `yMm`，状态污染难以察觉 |
 | TD12 | `croppedAreaPixels` 只作为"裁剪区域描述"，最终像素在渲染阶段按规格毫米 × DPI 反算 | 直接使用裁剪位图会带上用户的缩放倍率，输出尺寸随缩放漂移（违背 R6） | 直接导出裁剪位图：尺寸不可控 |
 | TD13 | 上传成功后立即用 `computeDefaultCrop` 写入一份按规格比例的默认裁剪区域 | `react-easy-crop` 只在编辑器挂载时才产生 `croppedAreaPixels`，若不预置，用户不打开编辑器就看不到 A4 预览 | 依赖编辑器回调：未打开编辑器时预览空白 |
-| TD14 | 正反面间距默认 **10mm**（`DEFAULT_FACE_GAP_MM`），并存于 `layout.gapMm` 供用户按 2–30mm 调节 | GB 11643 / ISO 7810 ID-1 只规定身份证卡体为 85.6 × 54mm，**未规定复印件上正反面的间距**；调研市面同类工具（lettimepassby/idcard-print 的 `gap_mm`、Swkings/photo-cut-merge 的 `--doc-gap-mm`）默认值均为 10mm，故取 10mm 为默认并把调节权交给用户 | 沿用固定 6mm：无任何来源支撑，且用户无法针对不同受理方要求调整 |
+| TD14 | 正反面间距默认 **20mm**（`DEFAULT_FACE_GAP_MM`），并存于 `layout.gapMm` 供用户按 2–30mm 调节 | GB 11643 / ISO 7810 ID-1 只规定身份证卡体为 85.6 × 54mm，**未规定复印件上正反面的间距**；调研市面同类工具（lettimepassby/idcard-print 的 `gap_mm`、Swkings/photo-cut-merge 的 `--doc-gap-mm`）默认值均为 10mm，本工具按用户要求取 20mm 为默认，并把调节权交给用户 | 沿用固定 6mm：无任何来源支撑，且用户无法针对不同受理方要求调整 |
 | TD15 | 拖拽吸附在**毫米空间**做，参考线来自三类锚点：页面中心线、安全边距线、其它面位的「起始边 / 中心 / 结束边」；阈值 `SNAP_THRESHOLD_MM = 2.5`，每个轴向只取距离最近的一条参考线 | 毫米是版式的唯一真值（TD2），吸附写在毫米空间才能保证「吸上去就是精确值」，且可以在 Node 中直接断言；三类锚点覆盖了用户实际会关心的对齐需求（居中、贴边、两面对齐） | 只在像素空间做吸附：受预览缩放影响，同一段代码在不同屏幕宽度下吸附结果不同，也无法脱离浏览器断言 |
 | TD16 | 参考标尺与参考线均为**纯预览层**：标尺用 DOM（CSS flex + 百分比定位），参考线画在叠加画布上，纸张画布与导出链路完全不感知 | 参考标尺/参考线一旦画进纸张画布就会出现在导出文件里；分层实现后导出结果与是否开启标尺无关 | 画在纸张画布上再擦除：导出时机与重绘时序耦合，容易漏擦 |
 | TD17 | 水印在**页面合成阶段**绘制：`composeA4Canvas` 内、面位之后、校准尺之前，与身份证图像共用同一条渲染链路 | 预览与导出共用 `composeA4Canvas`（TD2 的延伸），把水印画进这个函数，预览即所得、导出与预览天然一致；画在面位之后保证水印压在身份证图像**之上**，无法靠裁剪图片本身去掉 | ①画在面位画布上：水印被卡片边界裁掉，还会跟着卡片一起被拖动；②导出时另画一层：出现两条绘制路径，预览与导出必然漂移 |
 | TD18 | 水印平铺在**毫米空间**按「覆盖页面外接圆」计算瓦片，绘制时整体绕页面中心旋转 `angleDeg`；文本宽度按字符类型估算（全宽字符 = 1 倍字号、半角 = 0.6 倍字号），行高 = 1.2 倍字号 | 任意旋转角下「覆盖外接圆」必然覆盖整页矩形，无需按角度分类讨论；宽度估算让布局与浏览器字体度量解耦，同一输入可在 Node 中直接断言（无需 canvas） | 用 `measureText` 实时测量：布局依赖浏览器字体度量，脱离浏览器无法断言，且 Web 字体加载前后宽度会变 |
-| TD19 | 水印参数在**状态写入与绘制两处**守卫：store 写入时按码点截断到 15 字并折叠空白；绘制时把字号 / 间距 / 角度钳制到合法区间，`pxPerMm` 或字号异常时直接跳过绘制 | 水印是可选功能，参数一旦为 `NaN` / 越界 / 极值，轻则整页绘制失败，重则几十万个瓦片把浏览器拖死；钳制后瓦片数量有确定上界（实测最密配置 < 400 个） | 只在 UI 层限制取值范围：`InputNumber` 清空后回传 `null`，仍会写入非法值 |
+| TD19 | 水印参数在**状态写入与绘制两处**守卫：store 写入时按码点截断到 32 字并折叠空白；绘制时把字号 / 间距 / 角度钳制到合法区间，`pxPerMm` 或字号异常时直接跳过绘制 | 水印是可选功能，参数一旦为 `NaN` / 越界 / 极值，轻则整页绘制失败，重则几十万个瓦片把浏览器拖死；钳制后瓦片数量有确定上界（实测最密配置 < 400 个） | 只在 UI 层限制取值范围：`InputNumber` 清空后回传 `null`，仍会写入非法值 |
 | TD20 | 透视矫正采用「用户手动标定四角 + 单应变换」，**不引入任何 CV / WebGL 依赖** | 只有"自动找四个角"才需要 CV 依赖；拿到四角之后，矫正本身只是一个 8 元线性方程组加一次重采样，几十行纯函数即可完成，且能在 Node 中直接断言 | ①引入 opencv.js（约 8MB）：违背"轻量在线工具"定位，且仅用于自动找角；②WebGL shader 做单应：多出一条渲染路径，预览 / 导出 / 测试成本都显著上升 |
 | TD21 | 单应矩阵按**「目标矩形 → 源四边形」**方向求解（避免再求逆），逐像素**反向映射** + 双线性插值；采样点落在源图之外时填纯白 | 反向映射遍历的是目标像素，复杂度只与输出尺寸相关、与 12MP 源图无关；采样点落在四边形之外即代表"卡片之外的内容"，**背景不是被擦除，而是根本不会被采样到**，这是背景零残留的机制 | 把四边形切成两个三角形用仿射变换近似：斜边会留下可见接缝，且需要在 canvas 上跑，脱离浏览器无法断言 |
 | TD22 | 采样源在渲染时先降到 `min(源尺寸, 2 × 卡面目标尺寸)` 再取像素；预览级（≤ 4M 像素）按 `objectUrl + 尺寸` 缓存（LRU ≤ 4 条，`releaseImage` 时清空），导出级不缓存 | 12MP 原图的 `ImageData` 约 48MB，而逐像素反演本就只按输出采样，2 倍目标尺寸即可满足 300 DPI 采样精度：内存从 48MB 降到 11MB（导出）/ 0.5MB（预览），同时保留下采样带来的抗锯齿收益 | 直接对原图 `getImageData`：内存峰值与首次绘制耗时都不可控，手机上尤其危险 |
@@ -223,7 +223,7 @@ ctx.drawImage(image, 0, 0);
 以毫米空间计算，先求分组尺寸，再求整页内容块尺寸，最后换算像素：
 
 ```text
-gap      = 正反面间距，取 layout.gapMm（默认 10mm，可调 2–30mm）
+gap      = 正反面间距，取 layout.gapMm（默认 20mm，可调 2–30mm）
 copyGap  = 8mm
 faceCount = 实际存在的面位数量（1 或 2）
 
@@ -294,8 +294,8 @@ y ∈ [5, A4.heightMm - presetH - 5]
 **1. 文字规范化**（`normalizeWatermarkText`）
 
 ```ts
-// 折叠空白 → 去首尾空白 → 按码点（非 UTF-16 单元）截断到 15 个字
-Array.from(raw.replace(/\s+/g, ' ').trim()).slice(0, 15).join('')
+// 折叠空白 → 去首尾空白 → 按码点（非 UTF-16 单元）截断到 32 个字
+Array.from(raw.replace(/\s+/g, ' ').trim()).slice(0, 32).join('')
 ```
 
 用 `Array.from` 而非 `slice` 计数，才能保证 emoji / 生僻字（代理对）被算作 1 个字而不是 2 个。截断在 store 写入时执行，绘制前再执行一次，避免任何入口绕过限制。
@@ -322,13 +322,13 @@ tiles     = { (i * stepX, j * stepY) | i ∈ [-maxIndexX, maxIndexX], j ∈ [-ma
 
 | 参数 | 非法输入的处理 | 合法区间 |
 | ---- | -------------- | -------- |
-| 文字 | 折叠空白后为空 → 返回 `null`，不绘制 | ≤ 15 个字 |
+| 文字 | 折叠空白后为空 → 返回 `null`，不绘制 | ≤ 32 个字 |
 | 字号 | 非有限值 / ≤ 0 → 回退默认 8mm；再钳制到区间 | 4–24mm |
 | 平铺间距 | 非有限值 / ≤ 0 → 回退默认 50mm；再钳制到区间 | 20–120mm |
 | 角度 | 非有限值 → 回退默认 -30°；再钳制到区间 | -90°–90° |
 | `pxPerMm` | 非有限值 / ≤ 0 视为 0 → 换算出的字号像素 < 1px 时跳过绘制 | > 0 |
 
-钳制的直接收益是**瓦片数量有确定上界**：最密配置（字号 4mm + 间距 20mm + 15 个半角字符）下也只有 153 个瓦片，预览重绘与导出都不会被拖慢。
+钳制的直接收益是**瓦片数量有确定上界**：最密配置（字号 4mm + 间距 20mm + 32 个半角字符）下也只有 119 个瓦片，预览重绘与导出都不会被拖慢。
 
 **4. 固定值而非可调项**
 
@@ -460,9 +460,11 @@ h3·x + h4·y + h5 − h6·x·v − h7·y·v = v
 | `croppedAreaPixels` 坐标系与旋转状态不一致 | 裁剪结果错位 | 采用 react-easy-crop 官方推荐的旋转包围盒算法，并在开发文档记录公式 |
 | `react-easy-crop` 在弹窗卸载 / 容器尺寸为 0 时回传 `NaN` 裁剪区 | 成品渲染成空白纸张（已实际发生：调整裁剪后图片丢失） | 三层 NaN 守卫：编辑器入口拦截 → 绘制函数二次守卫 → 渲染层回退默认裁剪；并保留 `pnpm verify:crop` 回归脚本，覆盖拖动 / 缩放 / 旋转 / 复位 / 关闭弹窗全部阶段 |
 | 单帧分配与原图等大的旋转中间画布 | 12MP 手机图单张约 50MB，连续拖动时移动端易 OOM 或掉帧 | 用一次仿射变换替代中间画布（TD4），单帧只分配目标尺寸画布 |
-| 不同受理机构对复印件上正反面的间距要求不一致 | 固定间距可能被窗口以「排版不符」为由退回 | 默认取市面通行值 10mm，并在排版面板开放 2–30mm 调节（TD14）；间距过大导致溢出时由 A4 预览的溢出提示兜底 |
+| 不同受理机构对复印件上正反面的间距要求不一致 | 固定间距可能被窗口以「排版不符」为由退回 | 默认取 20mm，并在排版面板开放 2–30mm 调节（TD14）；间距过大导致溢出时由 A4 预览的溢出提示兜底 |
 | 吸附阈值（2.5mm）内无法用鼠标停出任意位置 | 用户想精确放在距参考线 1~2mm 处时会被吸走 | 位置微调 X / Y 输入框（步进 0.5mm）不受吸附影响，可直接输入精确值；需要时调小 `SNAP_THRESHOLD_MM` |
-| 水印参数取到极值（字号极小 + 间距极小 + 长文字）导致瓦片数量爆炸 | 预览重绘与导出变慢，极端情况卡死浏览器 | 绘制前把字号 / 间距 / 角度钳制到合法区间（TD19），瓦片数量因此有确定上界（最密 < 400 个，已断言） |
+| 水印参数取到极值（字号极小 + 间距极小 + 长文字）导致瓦片数量爆炸 | 预览重绘与导出变慢，极端情况卡死浏览器 | 绘制前把字号 / 间距 / 角度钳制到合法区间（TD19），瓦片数量因此有确定上界（最密 < 400 个，已断言；上限放宽到 32 字后实测 119 个） |
+| 文字上限放宽到 32 字后，长文字 + 大字号会让单个水印宽于整页（一行只放得下一个），看似"水印不见了" | 用户误以为功能失效 | 面板按 `estimateTextWidthMm` 实时估算单个水印宽度，超过 A4 宽度（210mm）时提示调小字号或缩短文字；导出与打印仍完全正常 |
+| 折叠面板内出现第二个 `.ant-btn-primary` | `verify:e2e` 用「首个 `.ant-btn-primary`」定位导出按钮，命中错误元素导致导出断言失败 | 面板内禁用主按钮：字号快捷预设改用 `Segmented`；面板未展开时 antd `Collapse` 不挂载内容，不会干扰既有选择器 |
 | 窄屏容器写死固定最小宽度 / 长文本不可断行 | 手机 H5 出现横向滚动条，内容被顶出屏幕（已实际发生：裁剪弹窗 320px 最小宽度） | 窄屏最小宽度一律用 `min(值, 100%)`；长 URL 加 `break-all`；关闭 iOS 字体放大；由 `verify:e2e` 在 320/360/390px 下断言整页与弹层均无横向滚动（见「关键实现细节 §10」） |
 | 用户四角标定不精确，卡边仍露出一圈背景 | 打印观感仍不干净 | 「边缘微调」滑块（±5%，渲染时施加、不破坏标定锚点）；编辑器与打印提示中明确"四角尽量贴到卡片边缘"（TD23） |
 | 透视矫正逐像素重采样导致大图卡顿 / 内存峰值 | 拖角掉帧、导出失败 | 采样源降到卡面目标尺寸的 2 倍（导出级约 11MB）；预览级像素数据缓存且 LRU ≤ 4 条、导出后不常驻；单帧复杂度只与输出像素数相关（TD22） |
@@ -538,6 +540,11 @@ pnpm verify:rectify          # 透视矫正：斜拍梯形拉正后背景像素�
 | 2026-10-14 | 修复手机 H5 横向滚动条：`CropEditor` 的 `min-w-[320px]` 改为 `min-w-[min(320px,100%)]`；`A4Preview` 的卡头 `extra` 窄屏隐藏（`hidden sm:inline`）；`AppFooter` 仓库地址加 `break-all`；`index.css` 增加 `-webkit-text-size-adjust: 100%`；新增「关键实现细节 §10 移动端窄屏适配」 | R16 | 缺陷修复 |
 | 2026-10-14 | `verify:e2e` 新增 9 项移动端视口断言（44 → 53 项）：320 / 360 / 390px 下整页与裁剪弹窗均无横向滚动、卡片标题未被截断 | R16 | 验证能力 |
 | 2026-10-14 | 同步文档：需求文档 R16 验收标准补充「窄屏无横向滚动条」并升为 `已验证`、开发方案补充 §10 与风险项 | R16 | 消除文档漂移 |
+| 2026-10-14 | R20 优化：`WatermarkPanel` 改用 `Collapse` 承载并**默认折叠**（折叠态标题行显示「字号 X mm · 水印文字」摘要并 `truncate`；antd 未展开时不挂载内容）；文字上限 15 → **32 字**；字号步进 1mm → **0.5mm**，新增 `WATERMARK_FONT_SIZE_STEP_MM` 与 6 / 8 / 12 / 16mm `Segmented` 快捷预设；按 `estimateTextWidthMm` 估算单个水印宽度，超过 A4 宽度时提示调小字号 | R20 | 功能层 |
+| 2026-10-14 | 过程中的回归缺陷：快捷预设初版用 `Button type="primary"`，与 `verify:e2e` 中「首个 `.ant-btn-primary` 即导出按钮」的定位方式冲突，导致 PNG 导出断言失败；改为 `Segmented` 并固化为约束（面板内不得出现第二个主按钮） | R20 | 回归缺陷修复 |
+| 2026-10-14 | 同步文档：需求文档 R20 与变更记录、AGENTS.md 常量表与水印实现约束、README 功能一览、`docs/使用说明.md` 水印段落 | R20 | 消除文档漂移 |
+| 2026-10-14 | R7 默认间距调整：`DEFAULT_FACE_GAP_MM` 由 10mm 改为 **20mm**（可调范围仍为 2–30mm）；`verify:logic` 相关断言按新默认值重算（上下排列分组高度 122 → 132、坐标 87.5 / 153.5 → 82.5 / 158.5、左右排列 186 / 12 / 110 → 196 / 7 / 115、2 份内容高度 252 → 272、间距可调用例改用 25mm、NaN 回退 122 → 132、偏移用例 y 期望 67.5 → 62.5）；`verify:e2e` 断言改为 20mm，拖拽吸附起点 y 由 115.5mm → 110.5mm、纵向吸附偏移期望由 61 → 66；`LayoutPanel` 标签文案与常量注释同步 | R7 | 默认值调整 |
+| 2026-10-14 | UI 优化：`FieldRow` 新增 `inline` 变体（标签在左、控件在右，`hint` 仍在下方）；「预览参考标尺」「打印校准尺」两个开关改用该变体，标签由「预览参考标尺（mm 刻度 + 吸附参考线，仅屏幕显示，不参与导出）」这类长句缩短为 6 / 5 字，解释性文字全部移到 `hint` | R12、R19 | 界面优化 |
 
 ---
 
@@ -577,3 +584,10 @@ pnpm verify:rectify          # 透视矫正：斜拍梯形拉正后背景像素�
 | 2026-10-14 | 透视矫正逻辑 | `pnpm verify:logic` 新增 31 项断言 | 129/129 通过：单应矩阵把目标矩形四角映射到卡片四角（误差 < 1e-6）、四边形为矩形时逐像素等价于原图裁剪、**斜拍梯形矫正后背景像素为 0**、矫正后四角与对角线交点（射影不变量）落在预期位置、蝴蝶形 / 共线 / 面积过小 / 越界 / null 四边形均被拒且不产生像素、拖角按凸性约束钳制（不误挡合法梯形、越界被挡在图片内）、边缘微调面积按比例平方收缩并钳制、默认四角保持规格比例、88×56 卡面补白 14×12px（≈1.2mm / 1.0mm）、原大规格铺满画布 |
 | 2026-10-14 | 透视矫正浏览器实测与效果对比 | `pnpm verify:rectify`（CDP 驱动无头 Chrome：用真实针孔相机模型把示例卡片投影成梯形照片 → 上传 → 真实鼠标拖动四个角点 → 统计 A4 预览像素） | 6/6 通过：整幅裁剪时桌面色像素 23778、贴合裁剪后仍有 8902（如实复现用户反馈）、四个角点被拖到卡片四角（误差 < 4px）、矫正后 A4 预览里桌面色像素 **0**、卡面内容像素 24306 仍在；对比图输出到 `tmp/rectify-demo/`（`01-crop-before` / `01b-crop-tight-before` / `02-perspective-editor` / `03-rectified-after`） |
 | 2026-10-14 | 全量回归（含透视矫正） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` / `pnpm verify:rectify` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 131/131、E2E 53/53、裁剪回归 8/8、透视矫正 6/6 |
+| 2026-10-14 | 水印文字与参数逻辑 | `pnpm verify:logic`（水印专项断言 39 → 45 项，全量 131 → 137） | 137/137 通过：文字上限 32 字、字号步进 0.5mm、预设值均在可调范围且唯一升序、32 字不截断 / 40 字截断、emoji 按码点计数、绘制前二次截断、最密配置瓦片数收敛（119 个 < 400） |
+| 2026-10-14 | 水印面板浏览器实测 | `pnpm verify:e2e` 新增 3 项断言（56/56 通过） | 通过：水印卡片默认折叠、展开后开关与输入框可见、点击「12mm」预设后 store 字号为 12；原有断言（超长文字截断、开关联动、密度 / 角度 / 字号改动影响预览、页面尺寸不变、关闭后墨迹归零）全部保持通过 |
+| 2026-10-14 | 水印面板视觉核对 | 无头 Chrome 截图 `tmp/watermark-optimize/`（折叠态 / 展开态 / 32 字 12mm / 折叠态摘要） | 通过：折叠态仅占一行且摘要不撑出面板；展开态三个滑块 + 字号分段预设齐备；32 字 12mm 触发「单个水印宽约 384mm，已超过 A4 宽度 210mm」提示；A4 预览水印仍正确平铺 |
+| 2026-10-14 | 全量回归（含水印优化） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` / `pnpm verify:rectify` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 137/137、E2E 56/56、裁剪回归 8/8、透视矫正 6/6 |
+| 2026-10-14 | 开关行改版核对 | 无头 Chrome 实测行高 + 截图 `tmp/switch-row/01-desktop.png` | 通过：两个开关行由「标签独占一行 + 开关独占一行」合并为单行 23px（标签与开关同排、开关右对齐），说明文字经 `hint` 完整保留；`verify:e2e` 56/56（含 320 / 360 / 390px 无横向滚动与参考标尺开关断言） |
+| 2026-10-14 | 默认间距实测（20mm） | 无头 Chrome 像素级测量 A4 预览画布：两条内容带顶边相距 188px（= 75.92mm），减去卡片高度 56mm 得实测间距 **19.92mm** | 通过：与设定值 20mm 一致（误差来自渲染取整，断言容差 < 1mm） |
+| 2026-10-14 | 全量回归（默认间距 20mm） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` / `pnpm verify:rectify` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 137/137、E2E 56/56、裁剪回归 8/8、透视矫正 6/6 |

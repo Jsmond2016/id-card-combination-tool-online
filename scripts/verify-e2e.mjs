@@ -231,14 +231,26 @@ const WATERMARK_FLOW = `(async () => {
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const store = window.__idCardStore;
   const paper = Array.from(document.querySelectorAll('canvas[width="520"]'))[0];
-  const card = Array.from(document.querySelectorAll('.ant-card')).find((item) =>
+  const card = Array.from(document.querySelectorAll('.ant-collapse-item')).find((item) =>
     item.textContent.includes('水印（可选）'),
   );
-  const input = card ? card.querySelector('input[placeholder="例如：仅供办理业务使用"]') : null;
-  const toggle = card ? card.querySelector('.ant-switch') : null;
-  if (!store || !paper || !card || !input || !toggle) {
+  if (!store || !paper || !card) {
     return { available: false };
   }
+
+  // 0) 折叠态：面板默认收起，控件此时不应可见（防止"看起来折叠了其实还占版面"）
+  const collapsedByDefault = !card.classList.contains('ant-collapse-item-active');
+  const header = card.querySelector('.ant-collapse-header');
+  if (header) {
+    header.click();
+    await sleep(700);
+  }
+  const input = card.querySelector('input[placeholder="例如：仅供办理业务使用"]');
+  const toggle = card.querySelector('.ant-switch');
+  if (!input || !toggle) {
+    return { available: false, collapsedByDefault };
+  }
+  const expandedShowsControls = input.offsetParent !== null;
 
   const inkIn = (heightMm) => {
     const context = paper.getContext('2d');
@@ -260,12 +272,22 @@ const WATERMARK_FLOW = `(async () => {
   const sizeBefore = { width: paper.width, height: paper.height };
   const before = { top: topInk(), page: pageInk() };
 
-  // 1) 界面上输入超长文字：store 层应把文字截断到 15 个字
+  // 1) 界面上输入超长文字：store 层应把文字截断到 32 个字
   const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
-  valueSetter.call(input, '仅供办理业务使用仅供办理业务使用');
+  valueSetter.call(input, '仅供办理业务使用仅供办理业务使用仅供办理业务使用仅供办理业务使用仅供办理业务使用');
   input.dispatchEvent(new Event('input', { bubbles: true }));
   await sleep(400);
   const textAfterUiInput = store.getState().watermark.text;
+
+  // 1b) 字号快捷预设：点击界面上的分段选项应把字号写入 store
+  const presetItem = Array.from(card.querySelectorAll('.ant-segmented-item')).find(
+    (item) => item.textContent.trim() === '12mm',
+  );
+  if (presetItem) {
+    (presetItem.querySelector('input') ?? presetItem).click();
+    await sleep(400);
+  }
+  const fontAfterPresetClick = store.getState().watermark.fontSizeMm;
 
   // 2) 界面开关启用水印
   toggle.click();
@@ -302,6 +324,10 @@ const WATERMARK_FLOW = `(async () => {
 
   return {
     available: true,
+    collapsedByDefault,
+    expandedShowsControls,
+    presetAvailable: Boolean(presetItem),
+    fontAfterPresetClick,
     defaultEnabled: defaults.enabled,
     defaultText: defaults.text,
     sizeBefore,
@@ -426,7 +452,7 @@ const main = async () => {
     );
     record('画布数量含 A4 与两个面位预览', result.canvasCount >= 3, String(result.canvasCount));
 
-    // R7：正反面间距默认值与调节链路（默认 10mm，改动后预览随之变化）
+    // R7：正反面间距默认值与调节链路（默认 20mm，改动后预览随之变化）
     const gap = await client.evaluate(GAP_FLOW);
     record('开发探针可用（间距断言）', gap.available === true, '未找到 window.__idCardStore');
     if (gap.available) {
@@ -437,9 +463,9 @@ const main = async () => {
       const measuredGapMm = (band) =>
         band.topDeltaPx === null ? null : band.topDeltaPx / pxPerMm - cardHeightMm;
       const near = (value, expected) => value !== null && Math.abs(value - expected) < 1;
-      record('默认正反面间距为 10mm', gap.initialGapMm === 10, String(gap.initialGapMm));
+      record('默认正反面间距为 20mm', gap.initialGapMm === 20, String(gap.initialGapMm));
       record(
-        '预览实测默认间距约为 10mm',
+        '预览实测默认间距约为 20mm',
         near(measuredGapMm(gap.initial), gap.initialGapMm),
         `实测 ${measuredGapMm(gap.initial)?.toFixed(2)}mm`,
       );
@@ -466,9 +492,9 @@ const main = async () => {
       const { rect } = snapGeometry;
       const pxPerMmX = rect.width / 210;
       const pxPerMmY = rect.height / 297;
-      // 默认版式（88×56、1 份、上下排列、居中）下正面卡片中心位于 (105, 115.5)mm
+      // 默认版式（88×56、1 份、上下排列、居中、间距 20mm）下正面卡片中心位于 (105, 110.5)mm
       const startX = rect.left + 105 * pxPerMmX;
-      const startY = rect.top + 115.5 * pxPerMmY;
+      const startY = rect.top + 110.5 * pxPerMmY;
       // 拖到「左边缘 11.5mm、上边缘 149.5mm」，两处都落在参考线 10mm / 148.5mm 的吸附范围内
       const endX = rect.left + 55.5 * pxPerMmX;
       const endY = rect.top + 177.5 * pxPerMmY;
@@ -526,8 +552,8 @@ const main = async () => {
       );
       record(
         '纵向吸附到 148.5mm 页面中心线',
-        Math.abs(afterDrag.offset.yMm - 61) < 0.1,
-        `offset.yMm = ${afterDrag.offset.yMm}（期望 61，即上边缘落在 148.5mm）`,
+        Math.abs(afterDrag.offset.yMm - 66) < 0.1,
+        `offset.yMm = ${afterDrag.offset.yMm}（期望 66，即上边缘落在 148.5mm）`,
       );
 
       // 复位偏移，避免影响后续 2 份 / 左右排列的像素统计
@@ -589,9 +615,24 @@ const main = async () => {
         watermark.defaultText,
       );
       record(
-        '界面输入超长文字后被截断为 15 个字',
-        textLength === 15,
+        '水印卡片默认折叠',
+        watermark.collapsedByDefault === true,
+        String(watermark.collapsedByDefault),
+      );
+      record(
+        '展开后水印控件可见',
+        watermark.expandedShowsControls === true,
+        String(watermark.expandedShowsControls),
+      );
+      record(
+        '界面输入超长文字后被截断为 32 个字',
+        textLength === 32,
         `${textLength} 个字：${watermark.textAfterUiInput}`,
+      );
+      record(
+        '点击字号快捷预设写入 12mm',
+        watermark.presetAvailable === true && watermark.fontAfterPresetClick === 12,
+        `preset=${watermark.presetAvailable} → ${watermark.fontAfterPresetClick}mm`,
       );
       record('界面开关可启用水印', watermark.enabledByUi === true, String(watermark.enabledByUi));
       record(

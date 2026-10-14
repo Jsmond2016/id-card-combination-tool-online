@@ -52,7 +52,7 @@ export const LayoutPanel = () => {
 
         <FieldRow
           label={`正反面间距（mm，默认 ${DEFAULT_FACE_GAP_MM}）`}
-          hint="国家标准只规定身份证卡体尺寸，未规定复印件上正反面的间距；10mm 为市面通行默认值，可按需调节。"
+          hint={`国家标准只规定身份证卡体尺寸，未规定复印件上正反面的间距；本工具默认 ${DEFAULT_FACE_GAP_MM}mm，可在 ${FACE_GAP_RANGE_MM.min}–${FACE_GAP_RANGE_MM.max}mm 之间调节。`}
         >
           <Flex align="center" gap={12} className="w-full">
             <Slider
@@ -155,8 +155,9 @@ export const LayoutPanel = () => {
         ) : null}
 
         <FieldRow
-          label="预览参考标尺（mm 刻度 + 吸附参考线，仅屏幕显示，不参与导出）"
-          hint="拖动身份证时，位置靠近页面中心、安全边距或另一面位的边缘会自动吸附；精确数值仍可用上方 X / Y 输入框设置。"
+          inline
+          label="预览参考标尺"
+          hint="显示 mm 刻度与吸附参考线，仅屏幕显示、不参与导出；拖拽时靠近页面中心、安全边距或另一面位边缘会自动吸附，精确数值仍可用上方 X / Y 输入框设置。"
         >
           <Switch
             checked={layout.showPreviewRuler}
@@ -164,7 +165,11 @@ export const LayoutPanel = () => {
           />
         </FieldRow>
 
-        <FieldRow label="打印校准尺（在页面底部绘制 50mm 标尺，用于打印后自检）">
+        <FieldRow
+          inline
+          label="打印校准尺"
+          hint="在页面底部绘制 50mm 标尺：打印后用尺子量一量，即可确认打印机有没有把页面缩放过。"
+        >
           <Switch
             checked={layout.showCalibrationRuler}
             onChange={(checked) => setLayout({ showCalibrationRuler: checked })}

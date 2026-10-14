@@ -43,7 +43,7 @@ const isWideChar = (char: string): boolean => {
 };
 
 /**
- * 规范化水印文字：折叠连续空白、去掉首尾空白、按**码点**截断到 15 个字。
+ * 规范化水印文字：折叠连续空白、去掉首尾空白、按**码点**截断到 `WATERMARK_TEXT_MAX_LENGTH` 个字。
  * 按码点而非 UTF-16 单元截断，保证 emoji / 生僻字只算一个字。
  */
 export const normalizeWatermarkText = (raw: string): string =>
