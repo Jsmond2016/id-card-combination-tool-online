@@ -223,6 +223,100 @@ const TOGGLE_RULER = (on) => `(() => {
   return true;
 })()`;
 
+/**
+ * 水印（R20）探针：白边（顶部 10mm）只有水印会着色，因此用"白边墨迹"判断水印是否生效，
+ * 用"全页墨迹"观察密度 / 角度 / 字号三个参数是否真的作用到渲染结果上。
+ */
+const WATERMARK_FLOW = `(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const store = window.__idCardStore;
+  const paper = Array.from(document.querySelectorAll('canvas[width="520"]'))[0];
+  const card = Array.from(document.querySelectorAll('.ant-card')).find((item) =>
+    item.textContent.includes('水印（可选）'),
+  );
+  const input = card ? card.querySelector('input[placeholder="例如：仅供办理业务使用"]') : null;
+  const toggle = card ? card.querySelector('.ant-switch') : null;
+  if (!store || !paper || !card || !input || !toggle) {
+    return { available: false };
+  }
+
+  const inkIn = (heightMm) => {
+    const context = paper.getContext('2d');
+    const heightPx =
+      heightMm === null ? paper.height : Math.max(1, Math.round((heightMm / 210) * paper.width));
+    const data = context.getImageData(0, 0, paper.width, heightPx).data;
+    let ink = 0;
+    for (let index = 0; index < data.length; index += 4) {
+      if (data[index] < 250 || data[index + 1] < 250 || data[index + 2] < 250) {
+        ink += 1;
+      }
+    }
+    return ink;
+  };
+  const topInk = () => inkIn(10);
+  const pageInk = () => inkIn(null);
+
+  const defaults = { ...store.getState().watermark };
+  const sizeBefore = { width: paper.width, height: paper.height };
+  const before = { top: topInk(), page: pageInk() };
+
+  // 1) 界面上输入超长文字：store 层应把文字截断到 15 个字
+  const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+  valueSetter.call(input, '仅供办理业务使用仅供办理业务使用');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  await sleep(400);
+  const textAfterUiInput = store.getState().watermark.text;
+
+  // 2) 界面开关启用水印
+  toggle.click();
+  await sleep(700);
+  const enabledByUi = store.getState().watermark.enabled;
+
+  store.getState().setWatermark({ text: '仅供办理业务使用', fontSizeMm: 8, spacingMm: 50, angleDeg: -30 });
+  await sleep(800);
+  const enabled = {
+    top: topInk(),
+    page: pageInk(),
+    size: { width: paper.width, height: paper.height },
+  };
+
+  store.getState().setWatermark({ spacingMm: 20 });
+  await sleep(800);
+  const dense = { page: pageInk() };
+
+  store.getState().setWatermark({ spacingMm: 100 });
+  await sleep(800);
+  const sparse = { page: pageInk() };
+
+  store.getState().setWatermark({ spacingMm: 50, angleDeg: 0 });
+  await sleep(800);
+  const flat = { top: topInk(), page: pageInk() };
+
+  store.getState().setWatermark({ angleDeg: -30, fontSizeMm: 20 });
+  await sleep(800);
+  const bigger = { page: pageInk() };
+
+  store.getState().setWatermark({ enabled: false, fontSizeMm: 8 });
+  await sleep(800);
+  const disabled = { top: topInk(), page: pageInk(), enabled: store.getState().watermark.enabled };
+
+  return {
+    available: true,
+    defaultEnabled: defaults.enabled,
+    defaultText: defaults.text,
+    sizeBefore,
+    before,
+    textAfterUiInput,
+    enabledByUi,
+    enabled,
+    dense,
+    sparse,
+    flat,
+    bigger,
+    disabled,
+  };
+})()`;
+
 const findDownload = (directory) => {
   const files = readdirSync(directory).filter((name) => name.endsWith('.pdf'));
   return files.length > 0 ? join(directory, files[0]) : null;
@@ -391,6 +485,73 @@ const main = async () => {
     await client.evaluate(TOGGLE_RULER(true));
     await sleep(300);
 
+    // R20：水印（UI 联动 + 参数生效 + 不改变页面尺寸）
+    const watermark = await client.evaluate(WATERMARK_FLOW);
+    record(
+      '水印面板可用（开关 + 文字输入）',
+      watermark.available === true,
+      '未找到水印面板的开关或输入框',
+    );
+    if (watermark.available) {
+      const textLength = Array.from(watermark.textAfterUiInput).length;
+      record('水印默认关闭', watermark.defaultEnabled === false, String(watermark.defaultEnabled));
+      record(
+        '水印默认文案可自定义',
+        watermark.defaultText === '仅供办理业务使用',
+        watermark.defaultText,
+      );
+      record(
+        '界面输入超长文字后被截断为 15 个字',
+        textLength === 15,
+        `${textLength} 个字：${watermark.textAfterUiInput}`,
+      );
+      record('界面开关可启用水印', watermark.enabledByUi === true, String(watermark.enabledByUi));
+      record(
+        '启用后页面白边出现水印墨迹',
+        watermark.enabled.top > 0,
+        `白边墨迹 ${watermark.enabled.top}px`,
+      );
+      record(
+        '启用后全页墨迹增加',
+        watermark.enabled.page > watermark.before.page,
+        `${watermark.before.page} → ${watermark.enabled.page}`,
+      );
+      record(
+        '水印不改变页面画布尺寸',
+        watermark.enabled.size.width === watermark.sizeBefore.width &&
+          watermark.enabled.size.height === watermark.sizeBefore.height,
+        `${watermark.enabled.size.width} × ${watermark.enabled.size.height}`,
+      );
+      record(
+        '平铺密度调小（间距 20mm）墨迹增加',
+        watermark.dense.page > watermark.enabled.page,
+        `${watermark.enabled.page} → ${watermark.dense.page}`,
+      );
+      record(
+        '平铺密度调大（间距 100mm）墨迹减少',
+        watermark.sparse.page < watermark.enabled.page,
+        `${watermark.enabled.page} → ${watermark.sparse.page}`,
+      );
+      record(
+        '倾斜角由 -30° 改为 0° 后墨迹分布变化',
+        Math.abs(watermark.flat.top - watermark.enabled.top) / Math.max(1, watermark.enabled.top) >
+          0.2,
+        `白边墨迹 ${watermark.enabled.top} → ${watermark.flat.top}px（全页 ${watermark.enabled.page} → ${watermark.flat.page}）`,
+      );
+      record(
+        '字号由 8mm 调大到 20mm 后墨迹增加',
+        watermark.bigger.page > watermark.enabled.page,
+        `${watermark.enabled.page} → ${watermark.bigger.page}`,
+      );
+      record(
+        '关闭水印后页面恢复干净',
+        watermark.disabled.enabled === false &&
+          watermark.disabled.top === 0 &&
+          Math.abs(watermark.disabled.page - watermark.before.page) <= 5,
+        `白边 ${watermark.disabled.top}px，全页 ${watermark.disabled.page}（初始 ${watermark.before.page}）`,
+      );
+    }
+
     let pdfPath = null;
     for (let attempt = 0; attempt < 40 && !pdfPath; attempt += 1) {
       pdfPath = findDownload(downloadDir);
@@ -490,6 +651,11 @@ const main = async () => {
     }
 
     if (SCREENSHOT_PATH) {
+      // 截图前临时开启水印，留出可视证据；此前的导出与像素断言均在关闭状态下完成
+      await client.evaluate(
+        `(() => { window.__idCardStore.getState().setWatermark({ enabled: true }); return true; })()`,
+      );
+      await sleep(700);
       const shot = await client.send('Page.captureScreenshot', {
         format: 'png',
         captureBeyondViewport: true,

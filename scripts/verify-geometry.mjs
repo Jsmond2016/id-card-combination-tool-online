@@ -20,6 +20,15 @@ const {
   RULER_MAJOR_TICK_MM,
   RULER_TICK_MM,
   SNAP_THRESHOLD_MM,
+  WATERMARK_TEXT_MAX_LENGTH,
+  DEFAULT_WATERMARK_FONT_SIZE_MM,
+  DEFAULT_WATERMARK_SPACING_MM,
+  DEFAULT_WATERMARK_ANGLE_DEG,
+  normalizeWatermarkText,
+  estimateTextWidthMm,
+  estimateTextHeightMm,
+  computeWatermarkLayout,
+  resolveWatermarkDrawParams,
   getSpecPreset,
   mmToPx,
   dpiToPxPerMm,
@@ -273,6 +282,184 @@ check(
   validateImageFile(fileOf('a.heic', 'image/heic', 1024)).message.includes('HEIC'),
   true,
 );
+
+// --- R20：水印文字规范化 ---
+check('水印文字上限为 15 个字', WATERMARK_TEXT_MAX_LENGTH, 15);
+check('水印默认字号为 8mm', DEFAULT_WATERMARK_FONT_SIZE_MM, 8);
+check('水印默认平铺间距为 50mm', DEFAULT_WATERMARK_SPACING_MM, 50);
+check('水印默认倾斜角为 -30°', DEFAULT_WATERMARK_ANGLE_DEG, -30);
+check('水印默认文案可用', normalizeWatermarkText('仅供办理业务使用'), '仅供办理业务使用');
+check(
+  '超长文字按码点截断到 15 个字',
+  normalizeWatermarkText('仅供办理业务使用仅供办理业务使用'),
+  '仅供办理业务使用仅供办理业务使',
+);
+check(
+  '换行与连续空白被折叠',
+  normalizeWatermarkText('  仅供\n办理   业务使用 '),
+  '仅供 办理 业务使用',
+);
+check('空文字保持为空', normalizeWatermarkText('   \n '), '');
+check(
+  '代理对（emoji）按一个字计数',
+  Array.from(normalizeWatermarkText('🎫'.repeat(20))).length,
+  15,
+);
+
+// --- R20：文本包围盒估算 ---
+check('全宽字符按 1 倍字号', estimateTextWidthMm('仅供办理业务使用', 10), 80);
+check('半角字符按 0.6 倍字号', Number(estimateTextWidthMm('ABCDE', 10).toFixed(2)), 30);
+check('混合文本按字符类型分别累加', Number(estimateTextWidthMm('仅供A', 10).toFixed(2)), 26);
+check('空文字宽度为 0', estimateTextWidthMm('', 10), 0);
+check('行高为字号的 1.2 倍', estimateTextHeightMm(10), 12);
+
+// --- R20：平铺布局（覆盖页面外接圆） ---
+const watermarkLayout = computeWatermarkLayout({
+  pageWidthMm: A4.widthMm,
+  pageHeightMm: A4.heightMm,
+  textWidthMm: estimateTextWidthMm('仅供办理业务使用', 8),
+  textHeightMm: estimateTextHeightMm(8),
+  gapXMm: 50,
+  gapYMm: 50,
+});
+check('瓦片以页面中心为原点', [watermarkLayout.centerXMm, watermarkLayout.centerYMm], [105, 148.5]);
+check(
+  '列步进 = 文本宽度 + 间距',
+  [watermarkLayout.stepXMm, watermarkLayout.stepYMm],
+  [64 + 50, 9.6 + 50],
+);
+check('瓦片数量符合覆盖外接圆的索引上界', watermarkLayout.tiles.length, 7 * 9);
+check(
+  '瓦片关于中心成对出现（无重复、无遗漏）',
+  new Set(watermarkLayout.tiles.map((tile) => `${tile.offsetXMm},${tile.offsetYMm}`)).size,
+  watermarkLayout.tiles.length,
+);
+check(
+  '包含页面中心的那一格存在',
+  watermarkLayout.tiles.some((tile) => tile.offsetXMm === 0 && tile.offsetYMm === 0),
+  true,
+);
+
+// 覆盖性判据：四个页角都能找到「左右各不超过半步、上下各不超过半步」的瓦片
+const pageCorners = [
+  [-A4.widthMm / 2, -A4.heightMm / 2],
+  [A4.widthMm / 2, -A4.heightMm / 2],
+  [-A4.widthMm / 2, A4.heightMm / 2],
+  [A4.widthMm / 2, A4.heightMm / 2],
+];
+const cornersCovered = (layout) =>
+  pageCorners.every(([cornerX, cornerY]) =>
+    layout.tiles.some(
+      (tile) =>
+        Math.abs(tile.offsetXMm - cornerX) <= layout.stepXMm / 2 + 1e-9 &&
+        Math.abs(tile.offsetYMm - cornerY) <= layout.stepYMm / 2 + 1e-9,
+    ),
+  );
+check('四个页角都被水印网格覆盖', cornersCovered(watermarkLayout), true);
+
+const denserLayout = computeWatermarkLayout({
+  pageWidthMm: A4.widthMm,
+  pageHeightMm: A4.heightMm,
+  textWidthMm: estimateTextWidthMm('仅供办理业务使用', 8),
+  textHeightMm: estimateTextHeightMm(8),
+  gapXMm: 20,
+  gapYMm: 20,
+});
+check(
+  '间距越小瓦片越多（密度可调）',
+  denserLayout.tiles.length > watermarkLayout.tiles.length,
+  true,
+);
+check('间距变小后仍覆盖四个页角', cornersCovered(denserLayout), true);
+
+const noGapLayout = computeWatermarkLayout({
+  pageWidthMm: A4.widthMm,
+  pageHeightMm: A4.heightMm,
+  textWidthMm: Number.NaN,
+  textHeightMm: 0,
+  gapXMm: Number.NaN,
+  gapYMm: -5,
+});
+check('尺寸与间距均非法时步进收敛到 1mm', [noGapLayout.stepXMm, noGapLayout.stepYMm], [1, 1]);
+check('极端输入下瓦片数量依然有限', Number.isFinite(noGapLayout.tiles.length), true);
+
+// --- R20：绘制参数钳制与可绘制性判定 ---
+const watermarkBase = {
+  pxPerMm: 300 / 25.4,
+  pageWidthMm: A4.widthMm,
+  pageHeightMm: A4.heightMm,
+  text: '仅供办理业务使用',
+  fontSizeMm: 8,
+  spacingMm: 50,
+  angleDeg: -30,
+};
+const defaultParams = resolveWatermarkDrawParams(watermarkBase);
+check('默认参数可绘制', Boolean(defaultParams), true);
+check(
+  '默认字号换算为像素',
+  Number(defaultParams.fontPx.toFixed(2)),
+  Number((8 * (300 / 25.4)).toFixed(2)),
+);
+check('默认角度保持 -30°', defaultParams.angleDeg, -30);
+check(
+  '角度 0° 不会被当成非法值',
+  resolveWatermarkDrawParams({ ...watermarkBase, angleDeg: 0 }).angleDeg,
+  0,
+);
+check(
+  '字号越界钳制到上限 24mm',
+  resolveWatermarkDrawParams({ ...watermarkBase, fontSizeMm: 999 }).fontSizeMm,
+  24,
+);
+check(
+  '字号为 0 时回退默认 8mm',
+  resolveWatermarkDrawParams({ ...watermarkBase, fontSizeMm: 0 }).fontSizeMm,
+  8,
+);
+check(
+  '间距低于下限时钳制到 20mm',
+  resolveWatermarkDrawParams({ ...watermarkBase, spacingMm: 1 }).spacingMm,
+  20,
+);
+check(
+  '间距为 NaN 时回退默认 50mm',
+  resolveWatermarkDrawParams({ ...watermarkBase, spacingMm: Number.NaN }).spacingMm,
+  50,
+);
+check(
+  '角度越界钳制到 -90°',
+  resolveWatermarkDrawParams({ ...watermarkBase, angleDeg: -400 }).angleDeg,
+  -90,
+);
+check(
+  '角度为 NaN 时回退默认 -30°',
+  resolveWatermarkDrawParams({ ...watermarkBase, angleDeg: Number.NaN }).angleDeg,
+  -30,
+);
+check('空白文字不绘制', resolveWatermarkDrawParams({ ...watermarkBase, text: '   ' }), null);
+check(
+  '画布过小（字号 < 1px）时不绘制',
+  resolveWatermarkDrawParams({ ...watermarkBase, pxPerMm: 0.1 }),
+  null,
+);
+check(
+  'pxPerMm 非法时不绘制',
+  resolveWatermarkDrawParams({ ...watermarkBase, pxPerMm: Number.NaN }),
+  null,
+);
+check(
+  '超长文字在绘制前再次截断',
+  resolveWatermarkDrawParams({ ...watermarkBase, text: '仅供办理业务使用仅供办理业务使用' }).text,
+  '仅供办理业务使用仅供办理业务使',
+);
+// 最密配置：字号取下限 + 间距取下限 + 15 个半角字符
+const densestParams = resolveWatermarkDrawParams({
+  ...watermarkBase,
+  text: 'iiiiiiiiiiiiiii',
+  fontSizeMm: 4,
+  spacingMm: 20,
+});
+check('最密配置下瓦片数量有上界（< 400）', densestParams.layout.tiles.length < 400, true);
 
 if (failures.length > 0) {
   console.error(`\n✗ ${failures.length} 项断言失败：`);

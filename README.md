@@ -1,6 +1,6 @@
 # 身份证复印件在线生成工具
 
-上传身份证正反面照片 → 裁剪校正 → 按国家标准尺寸排版到 A4 → 导出 PNG / JPG / PDF → 直接打印。
+上传身份证正反面照片 → 裁剪校正 → 按国家标准尺寸排版到 A4 → （可选）添加自定义水印 → 导出 PNG / JPG / PDF → 直接打印。
 
 **全程在浏览器本地完成，图片不上传任何服务器。**
 
@@ -12,6 +12,14 @@
 | 身份证复印件规格（默认预设） | 88mm × 56mm |
 | A4 纸张 | 210mm × 297mm |
 | 默认输出精度 | 300 DPI（A4 = 2480 × 3508 px） |
+
+## 功能一览
+
+- 上传正反面（点击 / 拖拽 / 粘贴），锁定规格比例裁剪、旋转、缩放
+- 两个标准规格预设（88 × 56mm / 85.6 × 54mm），版式、对齐、份数、正反面间距可调
+- 拖拽微调 + mm 参考标尺 + 吸附对齐
+- 可选自定义水印：文字最长 15 字，大小（4–24mm）、平铺密度（20–120mm）、倾斜角度（-90°–90°）可调
+- 导出 PNG / JPG / PDF（A4 210 × 297mm @ 150 / 300 DPI）
 
 ## 技术栈
 
@@ -48,7 +56,7 @@ pnpm verify:crop    # 裁剪编辑回归：拖动/缩放/旋转/复位后不得�
     ├── types/idCard.ts           # 领域类型
     ├── stores/useIdCardStore.ts  # Zustand 单 store
     ├── hooks/                    # useProject / useFaceEditor / useExport
-    ├── utils/                    # geometry / image / renderFace / renderA4 / export
+    ├── utils/                    # geometry / image / renderFace / renderA4 / watermark / export
     ├── components/               # 界面组件
     └── pages/HomePage.tsx        # 主页面
 ```
@@ -62,4 +70,4 @@ pnpm verify:crop    # 裁剪编辑回归：拖动/缩放/旋转/复位后不得�
 
 ## 明确不做
 
-服务端上传与账号体系、自动边缘检测/透视矫正、OCR 识别、水印、草稿持久化、HEIC 转码、多页批量处理。理由见需求文档「非目标」。
+服务端上传与账号体系、自动边缘检测/透视矫正、OCR 识别、草稿持久化、HEIC 转码、多页批量处理，以及水印内容的合规校验（水印文字完全由用户自定义）。理由见需求文档「非目标」。

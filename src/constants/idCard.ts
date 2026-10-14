@@ -78,6 +78,34 @@ export const SNAP_THRESHOLD_MM = 2.5;
 /** 可选校准标尺长度（mm） */
 export const CALIBRATION_RULER_MM = 50;
 
+/**
+ * 水印相关常量（R20）。
+ *
+ * 水印是页面级效果：平铺覆盖整页 A4 并压在身份证图像之上，因此只影响观感，
+ * 不参与任何尺寸计算——身份证尺寸与导出页面尺寸都不受水印影响。
+ */
+export const DEFAULT_WATERMARK_ENABLED = false;
+export const DEFAULT_WATERMARK_TEXT = '仅供办理业务使用';
+/** 水印文字最大长度（按码点计数，中文一个字算一个，超出自动截断） */
+export const WATERMARK_TEXT_MAX_LENGTH = 15;
+/** 水印字号可调范围（mm） */
+export const WATERMARK_FONT_SIZE_RANGE_MM = { min: 4, max: 24 } as const;
+export const DEFAULT_WATERMARK_FONT_SIZE_MM = 8;
+/** 平铺间距可调范围（mm）：相邻两个水印之间的空隙，数值越小越密 */
+export const WATERMARK_SPACING_RANGE_MM = { min: 20, max: 120 } as const;
+export const DEFAULT_WATERMARK_SPACING_MM = 50;
+/** 倾斜角度可调范围（度），正值为顺时针 */
+export const WATERMARK_ANGLE_RANGE_DEG = { min: -90, max: 90 } as const;
+export const DEFAULT_WATERMARK_ANGLE_DEG = -30;
+/** 水印透明度：低于 0.15 打印后偏淡，高于 0.25 会遮挡身份证信息 */
+export const WATERMARK_OPACITY = 0.18;
+export const WATERMARK_COLOR = '#000000';
+/** 单行水印的包围盒高度 = 字号 × 该比例 */
+export const WATERMARK_LINE_HEIGHT_RATIO = 1.2;
+/** 文本宽度估算：全宽字符（CJK / 全角）按 1 倍字号，半角字符按 0.6 倍字号 */
+export const WATERMARK_WIDE_CHAR_RATIO = 1;
+export const WATERMARK_NARROW_CHAR_RATIO = 0.6;
+
 /** 上传限制 */
 export const MAX_FILE_SIZE_MB = 20;
 export const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;

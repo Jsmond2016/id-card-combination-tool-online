@@ -21,6 +21,18 @@
 | 每页多份时的份与份间距 | 8mm（`COPY_GAP_MM`） |
 | 预览参考标尺刻度 / 主刻度 | 10mm / 50mm（`RULER_TICK_MM` / `RULER_MAJOR_TICK_MM`） |
 | 拖拽吸附阈值 | 2.5mm（`SNAP_THRESHOLD_MM`） |
+| 水印文字长度上限 | 15 个字（`WATERMARK_TEXT_MAX_LENGTH`，按码点计数） |
+| 水印字号（大小）默认 / 可调范围 | 8mm / 4–24mm（`DEFAULT_WATERMARK_FONT_SIZE_MM`） |
+| 水印平铺间距（密度）默认 / 可调范围 | 50mm / 20–120mm（`DEFAULT_WATERMARK_SPACING_MM`，数值越小越密） |
+| 水印倾斜角度默认 / 可调范围 | -30° / -90°–90°（`DEFAULT_WATERMARK_ANGLE_DEG`，正值顺时针） |
+| 水印透明度 / 颜色 | 0.18 / `#000000`（固定常量 `WATERMARK_OPACITY` / `WATERMARK_COLOR`，暂不开放为可调项） |
+
+### 水印实现约束（R20）
+
+- 水印是**页面级**效果：必须在 `composeA4Canvas` 中绘制于**面位之后、校准尺之前**，否则会被身份证图像盖住或干扰打印自检。
+- 平铺布局在毫米空间按「覆盖页面外接圆」计算（`utils/watermark.ts`），结果与倾斜角度无关，禁止改成按像素或按角度分类推导。
+- 文字宽度用估算函数而非 `measureText`，以保证布局可在 Node 中断言；参数在绘制前钳制到上表区间。
+- 水印**不得**参与任何尺寸计算：身份证尺寸与导出页面尺寸（A4 210 × 297mm）不随水印变化。
 
 ## 技术栈约束
 

@@ -3,4 +3,5 @@ export * from '../src/constants/idCard';
 export * from '../src/utils/alignment';
 export * from '../src/utils/geometry';
 export * from '../src/utils/image';
+export * from '../src/utils/watermark';
 export * from '../src/utils/export';

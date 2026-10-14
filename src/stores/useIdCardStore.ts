@@ -1,13 +1,24 @@
 import { create } from 'zustand';
 
-import { DEFAULT_DPI, DEFAULT_FACE_GAP_MM, DEFAULT_SPEC_ID } from '@/constants/idCard';
+import {
+  DEFAULT_DPI,
+  DEFAULT_FACE_GAP_MM,
+  DEFAULT_SPEC_ID,
+  DEFAULT_WATERMARK_ANGLE_DEG,
+  DEFAULT_WATERMARK_ENABLED,
+  DEFAULT_WATERMARK_FONT_SIZE_MM,
+  DEFAULT_WATERMARK_SPACING_MM,
+  DEFAULT_WATERMARK_TEXT,
+} from '@/constants/idCard';
 import type {
   ExportSettings,
   FaceKind,
   FaceState,
   LayoutSettings,
   SourceImage,
+  WatermarkSettings,
 } from '@/types/idCard';
+import { normalizeWatermarkText } from '@/utils/watermark';
 
 export const createEmptyFace = (): FaceState => ({
   source: null,
@@ -34,6 +45,14 @@ const createInitialLayout = (): LayoutSettings => ({
   showCalibrationRuler: false,
 });
 
+export const createInitialWatermark = (): WatermarkSettings => ({
+  enabled: DEFAULT_WATERMARK_ENABLED,
+  text: DEFAULT_WATERMARK_TEXT,
+  fontSizeMm: DEFAULT_WATERMARK_FONT_SIZE_MM,
+  spacingMm: DEFAULT_WATERMARK_SPACING_MM,
+  angleDeg: DEFAULT_WATERMARK_ANGLE_DEG,
+});
+
 const createInitialExportSettings = (): ExportSettings => ({
   format: 'pdf',
   dpi: DEFAULT_DPI,
@@ -42,10 +61,13 @@ const createInitialExportSettings = (): ExportSettings => ({
 export interface IdCardState {
   faces: Record<FaceKind, FaceState>;
   layout: LayoutSettings;
+  watermark: WatermarkSettings;
   exportSettings: ExportSettings;
   setSource: (kind: FaceKind, source: SourceImage | null) => void;
   patchFace: (kind: FaceKind, patch: Partial<FaceState>) => void;
   setLayout: (patch: Partial<LayoutSettings>) => void;
+  setWatermark: (patch: Partial<WatermarkSettings>) => void;
+  resetWatermark: () => void;
   setExportSettings: (patch: Partial<ExportSettings>) => void;
   resetFaceEdit: (kind: FaceKind) => void;
   resetOffsets: () => void;
@@ -60,6 +82,7 @@ const withFace = (state: IdCardState, kind: FaceKind, next: FaceState): IdCardSt
 export const useIdCardStore = create<IdCardState>()((set) => ({
   faces: createInitialFaces(),
   layout: createInitialLayout(),
+  watermark: createInitialWatermark(),
   exportSettings: createInitialExportSettings(),
 
   /** 设置或清空某个面位的图片；清空时连同裁剪参数一起复位 */
@@ -77,6 +100,18 @@ export const useIdCardStore = create<IdCardState>()((set) => ({
     set((state) => withFace(state, kind, { ...state.faces[kind], ...patch })),
 
   setLayout: (patch) => set((state) => ({ layout: { ...state.layout, ...patch } })),
+
+  /**
+   * 浅合并水印设置；文字在这里统一规范化（折叠空白 + 按码点截断到 15 字），
+   * 任何入口写入超长或带换行的文字都会在这里被收口（TD19）。
+   */
+  setWatermark: (patch) =>
+    set((state) => {
+      const next = { ...state.watermark, ...patch };
+      return { watermark: { ...next, text: normalizeWatermarkText(next.text) } };
+    }),
+
+  resetWatermark: () => set(() => ({ watermark: createInitialWatermark() })),
   setExportSettings: (patch) =>
     set((state) => ({ exportSettings: { ...state.exportSettings, ...patch } })),
 
@@ -98,6 +133,7 @@ export const useIdCardStore = create<IdCardState>()((set) => ({
     set(() => ({
       faces: createInitialFaces(),
       layout: createInitialLayout(),
+      watermark: createInitialWatermark(),
       exportSettings: createInitialExportSettings(),
     })),
 }));

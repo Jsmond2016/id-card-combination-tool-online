@@ -1,6 +1,7 @@
 import { A4, CALIBRATION_RULER_MM, type SpecPreset } from '@/constants/idCard';
-import type { FaceKind } from '@/types/idCard';
+import type { FaceKind, WatermarkSettings } from '@/types/idCard';
 import type { LayoutPlan } from '@/utils/geometry';
+import { drawWatermark } from '@/utils/watermark';
 
 export interface ComposeA4Input {
   /** 每毫米对应多少像素，统一驱动尺寸换算（预览与导出共用同一套代码） */
@@ -8,6 +9,8 @@ export interface ComposeA4Input {
   plan: LayoutPlan;
   preset: SpecPreset;
   faceCanvases: Partial<Record<FaceKind, HTMLCanvasElement>>;
+  /* 水印设置（R20）：绘制在面位之后、校准尺之前 */
+  watermark: WatermarkSettings;
   showCalibrationRuler: boolean;
 }
 
@@ -59,9 +62,9 @@ function drawCalibrationRuler(context: CanvasRenderingContext2D, pxPerMm: number
   context.restore();
 }
 
-/** 合成 A4 页面画布：白底 + 按版式绘制各面位 + 可选校准尺 */
+/** 合成 A4 页面画布：白底 + 按版式绘制各面位 + 可选水印 + 可选校准尺 */
 export function composeA4Canvas(input: ComposeA4Input): HTMLCanvasElement {
-  const { pxPerMm, plan, preset, faceCanvases, showCalibrationRuler } = input;
+  const { pxPerMm, plan, preset, faceCanvases, watermark, showCalibrationRuler } = input;
   const canvas = createCanvas(A4.widthMm * pxPerMm, A4.heightMm * pxPerMm);
   const context = get2dContext(canvas);
 
@@ -84,6 +87,20 @@ export function composeA4Canvas(input: ComposeA4Input): HTMLCanvasElement {
       heightPx,
     );
   });
+
+  // 水印压在身份证图像之上，无法通过裁剪图片本身去掉（TD17）
+  if (watermark.enabled) {
+    drawWatermark({
+      context,
+      pxPerMm,
+      pageWidthMm: A4.widthMm,
+      pageHeightMm: A4.heightMm,
+      text: watermark.text,
+      fontSizeMm: watermark.fontSizeMm,
+      spacingMm: watermark.spacingMm,
+      angleDeg: watermark.angleDeg,
+    });
+  }
 
   if (showCalibrationRuler) {
     drawCalibrationRuler(context, pxPerMm);

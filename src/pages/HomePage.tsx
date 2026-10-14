@@ -9,6 +9,7 @@ import { LayoutPanel } from '@/components/LayoutPanel';
 import { PrintTips } from '@/components/PrintTips';
 import { PrivacyNotice } from '@/components/PrivacyNotice';
 import { UploadPanel } from '@/components/UploadPanel';
+import { WatermarkPanel } from '@/components/WatermarkPanel';
 import { useFaceEditor } from '@/hooks/useFaceEditor';
 import { useProject } from '@/hooks/useProject';
 import { useIdCardStore } from '@/stores/useIdCardStore';
@@ -94,6 +95,7 @@ export default function HomePage() {
                 </Card>
 
                 <LayoutPanel />
+                <WatermarkPanel />
                 <ExportPanel model={model} />
               </Flex>
             </Col>

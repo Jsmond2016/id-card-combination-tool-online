@@ -29,6 +29,7 @@ export interface ProjectModel {
 export function useProject(): ProjectModel {
   const faces = useIdCardStore((state) => state.faces);
   const layout = useIdCardStore((state) => state.layout);
+  const watermark = useIdCardStore((state) => state.watermark);
   const exportDpi = useIdCardStore((state) => state.exportSettings.dpi);
 
   const preset = useMemo(() => getSpecPreset(layout.specId), [layout.specId]);
@@ -75,9 +76,10 @@ export function useProject(): ProjectModel {
         plan,
         preset,
         faceCanvases: buildFaceCanvasMap(activeKinds, faces, preset, pxPerMm),
+        watermark,
         showCalibrationRuler,
       }),
-    [plan, preset, faces, activeKinds, showCalibrationRuler],
+    [plan, preset, faces, activeKinds, watermark, showCalibrationRuler],
   );
 
   return {
