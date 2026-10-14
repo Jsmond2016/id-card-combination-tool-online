@@ -1,0 +1,368 @@
+# 身份证复印件在线生成工具 开发方案文档
+
+> **编写时间**：2026-10-14；**使用模型**：Codex；**用户**：jsmond2016
+
+---
+
+## 开发分支
+
+`feature/id-card-combination-tool-online`
+
+需求文档：`specs/id-card-combination-tool-online/id-card-combination-tool-online-需求文档.md`
+
+---
+
+## 方案概览
+
+### 形态
+
+**纯前端静态站点（SPA）**，无后端服务、无接口调用、无网络请求。所有图片处理（解码、裁剪、旋转、合成、导出）在浏览器内通过 Canvas 2D 完成。这既是需求 R13 的硬约束，也是最省成本的部署形态（静态托管即可）。
+
+### 技术栈
+
+| 类别 | 选型 | 用途说明 |
+| ---- | ---- | -------- |
+| 包管理 | pnpm 10 | 统一使用淘宝镜像（`.npmrc`） |
+| 构建 | Vite 7 | 开发服务器 + 生产构建 |
+| 框架 | React 19 + TypeScript（严格模式） | 函数组件 + Hooks，禁止 class 组件 |
+| UI 组件 | Ant Design 5 + `@ant-design/icons` | 表单、上传、滑块、布局组件 |
+| CSS | Tailwind CSS 4（Vite 插件） | 布局与间距工具类 |
+| Hooks | ahooks 3 | `useSetState`、`useMemoizedFn`、`useBoolean`、`useEventListener` |
+| 函数式 | Ramda（+ `@types/ramda`） | 状态与版式数据的不可变变换 |
+| 状态管理 | Zustand 5 | 单一 store，承载图片、编辑参数、版式与导出设置 |
+| 裁剪组件 | `react-easy-crop` | 锁定宽高比的裁剪框，支持缩放与旋转 |
+| PDF 导出 | `jsPDF` | 生成精确 A4 尺寸的单页 PDF |
+| 代码质量 | ESLint 9（flat config）+ Prettier 3 | 静态检查与格式化 |
+
+### 数据流
+
+```mermaid
+flowchart LR
+  U[用户选择/拖拽图片] --> V[格式与体积校验]
+  V --> D[解码为 HTMLImageElement]
+  D --> S[Zustand store: FaceState]
+  S --> C[react-easy-crop 裁剪编辑]
+  C --> P[输出 croppedAreaPixels]
+  P --> R[按规格 mm→px 渲染到目标 Canvas]
+  R --> A[A4 Canvas 合成 2480x3508]
+  A --> E1[PNG/JPG 导出]
+  A --> E2[jsPDF 生成 A4 PDF]
+```
+
+关键点：`croppedAreaPixels` 只是**裁剪区域描述**，不作为最终像素输出。最终输出统一由"A4 合成阶段"按规格毫米尺寸 × DPI 反算像素，避免裁剪框缩放倍率导致的输出尺寸漂移（对应 R6）。
+
+---
+
+## 需求-方案映射
+
+状态取值：`待确认` / `已确认` / `已实现` / `已验证`
+
+| 需求 ID | 开发方案 | 影响范围 | 验证方式 | 状态 |
+| ------- | -------- | -------- | -------- | ---- |
+| R1 | `UploadPanel` 使用 `Upload.Dragger` + `beforeUpload` 返回 `false`；`utils/image.validateImageFile` 做扩展名/MIME 双校验与 20MB 上限；上传成功后写入 store 并同步生成默认裁剪 | `components/UploadPanel.tsx`、`hooks/useFaceEditor.ts`、`utils/image.ts` | 逻辑断言覆盖 jpg 通过 / txt、超限、空文件被拒；浏览器实测上传成功 | 已实现 |
+| R2 | 与 R1 共用 `UploadPanel`，通过 `kind` 属性区分正反面，store 中维护两个独立 `FaceState` | `components/UploadPanel.tsx`、`stores/useIdCardStore.ts` | 浏览器实测正反面各自上传成功、互不覆盖 | 已验证 |
+| R3 | 版式以 `kinds`（实际参与排版的面位数组）驱动分组计算，面位缺失时不预留占位 | `utils/geometry.ts` | 单面时分组高度为 56mm 且垂直居中（断言）；浏览器实测单面/双面均正常 | 已验证 |
+| R4 | `FaceCard` 提供「重新上传」（Upload 包装按钮）与「移除」（`Popconfirm` 二次确认），移除时释放图片缓存 | `components/FaceCard.tsx`、`stores/useIdCardStore.ts` | 代码路径完整；无自动化交互验证 | 已实现 |
+| R5 | `CropEditor` 基于 `react-easy-crop`：`aspect = 规格宽/高`；缩放滑块；整角 ±90° 按钮；细调滑块 ±45°（步进 0.1°）；`objectFit="contain"`；`onCropComplete` 以 `isValidCropArea` 拦截 NaN；渲染层缺裁剪时回退 `computeDefaultCrop` | `components/CropEditor.tsx`、`utils/image.ts`、`utils/renderFace.ts`、`stores/useIdCardStore.ts` | `pnpm verify:crop` 覆盖上传 → 拖动 → 放大 → 旋转微调 → 右转 90° → 复位 → 关闭弹窗 8 个阶段，断言 A4 与面位预览始终有画面、裁剪区域始终为有限正数 | 已验证 |
+| R6 | `constants/idCard.ts` 定义 `SPEC_PRESETS`、`mmToPx`、`dpiToPxPerMm`；输出画布尺寸由毫米 × DPI 推导，UI 不暴露自由尺寸 | `constants/idCard.ts`、`utils/renderA4.ts` | 断言：A4@300DPI=2480×3508、88×56@300DPI=1039×661；浏览器实测 PDF 页面为 210 × 297mm | 已验证 |
+| R7 | `utils/geometry.buildLayoutPlan` 纯函数在毫米空间计算分组与坐标，正反面间距由 `layout.gapMm` 驱动（默认 `DEFAULT_FACE_GAP_MM` = 10mm，异常值回退默认）；`LayoutPanel` 提供版式/对齐/份数/间距控件 | `utils/geometry.ts`、`components/LayoutPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts` | 断言覆盖上下/左右排列坐标、间距 10/20/0/NaN 四种取值、距边对齐、溢出标记；浏览器实测修改间距后 A4 预览的实际像素间隔随之变化（默认实测 9.69mm、改为 25mm 后实测约 24.9mm） | 已验证 |
+| R8 | `A4Preview` 以 Pointer Events 实现拖动，位移换算为毫米写入 `face.offset`；`LayoutPanel` 提供 X/Y `InputNumber`（步进 0.5mm）与「复位位置」；越界经 `clampFacePosition` 钳制 | `components/A4Preview.tsx`、`utils/geometry.ts` | 断言：偏移生效且尺寸不变、越界钳制到 [5, 217]/[5, 236]；拖动交互未自动化验证 | 已实现 |
+| R9 | `buildLayoutPlan` 支持 `copies: 1 \| 2`，多份沿纵向以 `copyGap` 叠放并整体垂直居中 | `utils/geometry.ts`、`components/LayoutPanel.tsx` | 断言：2 份内容高 244mm、四个面位坐标互不重叠；浏览器实测 2 份后着色像素约翻倍 | 已验证 |
+| R10 | `canvasToBlob` + `downloadBlob`；A4 画布像素由 `dpiToPxPerMm` 决定 | `utils/export.ts`、`hooks/useExport.ts` | 浏览器实测导出的 PNG 为 2480 × 3508 | 已验证 |
+| R11 | `jsPDF({ unit: 'mm', format: 'a4' })` + `addImage(dataUrl, 'JPEG', 0, 0, 210, 297)`，动态 `import` 拆分出独立 chunk | `utils/export.ts`、`hooks/useExport.ts` | 浏览器实测 PDF `MediaBox = [0 0 595.28 841.89]`，即 210 × 297mm | 已验证 |
+| R12 | `PrintTips` 常驻提示与 FAQ；`LayoutPanel` 提供「打印校准尺」开关（默认关闭），开启时在 A4 底部绘制 50mm 标尺 | `components/PrintTips.tsx`、`utils/renderA4.ts` | 界面实测渲染正常；标尺未做打印实物量测 | 已实现 |
+| R13 | 全站不引入任何请求库；`beforeUpload` 返回 `false` 阻止 antd 内置上传；无 `fetch`/`XHR` 调用 | 全局 | 浏览器实测启用 Network 域采集全流程请求：除本地开发服务器外无任何跨域请求 | 已验证 |
+| R15 | `validateImageFile` 对 HEIC/HEIF 给出专属提示；`estimateEffectiveDpi` 反算有效精度，低于 300 DPI 时在 `FaceCard` 显示告警标签；FAQ 覆盖非身份证比例与拍摄建议 | `utils/image.ts`、`components/FaceCard.tsx`、`components/PrintTips.tsx` | 断言：HEIC 提示文案、低分辨率判据；界面告警渲染未自动化验证 | 已实现 |
+| R16 | antd `Row/Col` 栅格 + Tailwind 响应式前缀；异步操作使用 `App.useApp()` 消息反馈与按钮 loading | `pages/HomePage.tsx`、各组件 | 1440px 宽度下实测布局正常；768px 宽度未实测 | 已实现 |
+| R17 | `ExportPanel` 提供 150 / 300 DPI 分段控件，默认 300 | `components/ExportPanel.tsx`、`constants/idCard.ts` | 断言：150 DPI 时 A4 = 1240 × 1754；300 DPI 已浏览器实测 | 已验证 |
+| R18 | `buildFileName(extension, now?)` 生成 `身份证复印件_YYYYMMDD_HHmm.ext` | `utils/export.ts` | 断言：固定时间下输出 `身份证复印件_20261014_0905.pdf` | 已验证 |
+| R19 | `A4Preview` 用 CSS flex 排布「上/左标尺 + 纸张画布 + 参考线叠加画布」；标尺刻度与高亮区间用百分比定位，随预览尺寸自适应；拖动时 `utils/alignment.resolveSnap` 在毫米空间计算吸附位置与参考线，参考线画在独立的叠加画布上（`pointer-events: none`），避免污染导出画布 | `components/A4Preview.tsx`、`utils/alignment.ts`、`stores/useIdCardStore.ts` | 断言覆盖吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0；浏览器实测真实鼠标拖拽后 `offset` 精确落在参考线上（横向 -51mm → 左边缘 10mm、纵向 +61mm → 上边缘 148.5mm），拖拽中叠加画布有参考线像素、松开后清零，关闭开关后标尺不再占位 | 已验证 |
+
+---
+
+## 技术决策
+
+| ID | 决策 | 理由 | 备选方案与否决原因 |
+| -- | ---- | ---- | ------------------ |
+| TD1 | 纯前端、零上传，不引入任何请求库 | 身份证是最高敏感级个人信息，上传即产生存储、传输、留存三类风险；R13 为硬约束 | 后端处理：需要服务器、带来合规成本，且对纯图像排版无技术必要性 |
+| TD2 | 以 **mm 为唯一真值**，像素由 `dpi` 派生；所有坐标计算在毫米空间完成后统一 `Math.round` 到像素 | 打印正确性本质是毫米正确性；若在像素空间累加会因取整产生漂移，2 份叠放时误差会被放大 | 直接按像素布局：DPI 切换时需重算全部常量，易错 |
+| TD3 | 规格预设各自定义 `widthMm/heightMm`，裁剪框宽高比与输出尺寸都取该预设自身比例，不做等比缩放折算 | 用户要"符合标准或略小"，两个预设都是行业硬值；等比重算会让输出落在 88×55.5 这类非标尺寸上 | 只保留 88×56 并等比缩放：输出高度非标 |
+| TD4 | 裁剪结果不落中间画布：把「旋转 → 裁剪 → 缩放」合成为**一次仿射变换**直接画到目标尺寸画布；`croppedAreaPixels` 位于旋转后的原图坐标系，按 `目标坐标 = (旋转后坐标 − crop 起点) × 缩放比` 映射 | 省掉与原图等大的中间画布（12MP 手机图单张可达约 50MB），移动端不会因每帧重绘而 OOM；同时天然保证输出像素 = 规格 × DPI | ①先生成旋转中间画布再裁剪：每帧分配 GB 级内存，拖动即卡顿；②先生成裁剪位图再缩放：多一次大图绘制与二次插值损失 |
+| TD5 | PDF 采用 `jsPDF({ unit: 'mm', format: 'a4' })`，`addImage` 按 `(0, 0, 210, 297)` 铺满；嵌入 JPEG（quality 0.95） | 页面尺寸写入 PDF 物理单位，100% 打印即真实尺寸；JPEG 相比 PNG 显著减小文件体积 | 用图片直接打印：浏览器会按"适合页面"缩放，尺寸不可控 |
+| TD6 | Tailwind 4 与 antd 5 采用 `@layer theme, base, antd, components, utilities` 分层 + `StyleProvider layer` | 官方推荐做法，使 antd 样式固定在 `antd` 层、Tailwind 工具类始终可覆盖它，避免 preflight 重置破坏 antd 组件 | 关闭 preflight：仍需手工补 `border-style` 等基础样式 |
+| TD7 | 不引入 React Router / TanStack Query / axios | 单页工具、无服务端状态，引入后只增加体积与心智负担 | 按脚手架模板全量安装：无使用的依赖属于负资产 |
+| TD8 | 仅支持平面旋转（整角 + 细调），不实现透视矫正 | 透视矫正在 Canvas 2D 下需逐像素重映射或引入 WebGL/CV 依赖，成本远超收益；通过拍摄引导规避 | 引入 opencv.js：体积约 8MB，破坏"轻量在线工具"定位（已列为非目标） |
+| TD9 | EXIF 方向交由浏览器原生处理（`<img>` 解码，现代浏览器自动应用方向标记） | 手机拍摄图带 Orientation 标记，浏览器渲染与 `drawImage` 均已按方向输出，无需引入 `exif-js` | 手工解析 EXIF：重复实现且易漏 case |
+| TD10 | "每页 2 份"沿**纵向叠放**两组，而非左右并列 | 纵向叠放不改变既有分组内部版式，只需平移 `groupHeight + copyGap`，逻辑复用度最高 | 左右并列：需额外定义两组的水平对齐规则，且横向易超 A4 宽度 |
+| TD11 | Zustand 单 store 管理跨组件状态；`patchFace` 采用**浅合并**（`Partial<FaceState>`），嵌套对象（`offset`、`croppedAreaPixels`）整体传入；Ramda 只用于纯数据变换（`clamp`、`fromPairs`） | 编辑参数与图片状态需要跨组件共享（上传面板、裁剪器、A4 预览、导出面板），单 store 避免多层回调透传；嵌套对象整体传入可由类型系统拦截"只传半个 offset"的写法，避免旧字段残留造成状态污染 | 深合并（`mergeDeepLeft`）：类型上无法约束"半截嵌套对象"，只更新 `offset.xMm` 会静默沿用旧 `yMm`，状态污染难以察觉 |
+| TD12 | `croppedAreaPixels` 只作为"裁剪区域描述"，最终像素在渲染阶段按规格毫米 × DPI 反算 | 直接使用裁剪位图会带上用户的缩放倍率，输出尺寸随缩放漂移（违背 R6） | 直接导出裁剪位图：尺寸不可控 |
+| TD13 | 上传成功后立即用 `computeDefaultCrop` 写入一份按规格比例的默认裁剪区域 | `react-easy-crop` 只在编辑器挂载时才产生 `croppedAreaPixels`，若不预置，用户不打开编辑器就看不到 A4 预览 | 依赖编辑器回调：未打开编辑器时预览空白 |
+| TD14 | 正反面间距默认 **10mm**（`DEFAULT_FACE_GAP_MM`），并存于 `layout.gapMm` 供用户按 2–30mm 调节 | GB 11643 / ISO 7810 ID-1 只规定身份证卡体为 85.6 × 54mm，**未规定复印件上正反面的间距**；调研市面同类工具（lettimepassby/idcard-print 的 `gap_mm`、Swkings/photo-cut-merge 的 `--doc-gap-mm`）默认值均为 10mm，故取 10mm 为默认并把调节权交给用户 | 沿用固定 6mm：无任何来源支撑，且用户无法针对不同受理方要求调整 |
+| TD15 | 拖拽吸附在**毫米空间**做，参考线来自三类锚点：页面中心线、安全边距线、其它面位的「起始边 / 中心 / 结束边」；阈值 `SNAP_THRESHOLD_MM = 2.5`，每个轴向只取距离最近的一条参考线 | 毫米是版式的唯一真值（TD2），吸附写在毫米空间才能保证「吸上去就是精确值」，且可以在 Node 中直接断言；三类锚点覆盖了用户实际会关心的对齐需求（居中、贴边、两面对齐） | 只在像素空间做吸附：受预览缩放影响，同一段代码在不同屏幕宽度下吸附结果不同，也无法脱离浏览器断言 |
+| TD16 | 参考标尺与参考线均为**纯预览层**：标尺用 DOM（CSS flex + 百分比定位），参考线画在叠加画布上，纸张画布与导出链路完全不感知 | 参考标尺/参考线一旦画进纸张画布就会出现在导出文件里；分层实现后导出结果与是否开启标尺无关 | 画在纸张画布上再擦除：导出时机与重绘时序耦合，容易漏擦 |
+
+---
+
+## 模块与文件规划
+
+```text
+.
+├── specs/id-card-combination-tool-online/    # 需求文档与开发方案文档（本目录）
+├── docs/                                     # 使用说明等辅助文档
+├── public/                                   # 静态资源
+├── scripts/                                  # 验证脚本（逻辑断言 + 浏览器端 E2E）
+└── src/
+    ├── main.tsx                  # 入口：ConfigProvider / StyleProvider / App 消息上下文
+    ├── App.tsx                   # 应用外壳（单页工具，无路由）
+    ├── index.css                 # Tailwind 分层引入 + 少量全局样式
+    ├── constants/idCard.ts       # 规格预设、A4 尺寸、DPI 选项、mmToPx
+    ├── types/idCard.ts           # FaceKind / FaceState / LayoutSettings / ExportSettings
+    ├── stores/useIdCardStore.ts  # Zustand store：faces、layout、exportSettings
+    ├── hooks/
+    │   ├── useProject.ts         # 聚合派生状态：预设、版式计划、A4 合成函数
+    │   ├── useFaceEditor.ts      # 单面位编辑动作与校验（上传、移除、有效精度）
+    │   └── useExport.ts          # 导出流程编排（loading、错误提示、下载）
+    ├── utils/
+    │   ├── geometry.ts           # 版式纯函数：分组尺寸、坐标、溢出钳制
+    │   ├── alignment.ts          # 拖拽吸附：参考线锚点、吸附位置计算
+    │   ├── image.ts              # 文件校验、解码、旋转包围盒、裁剪重采样
+    │   ├── renderFace.ts         # 把单个面位渲染为规格尺寸画布
+    │   ├── renderA4.ts           # A4 Canvas 合成、校准标尺
+    │   └── export.ts             # PNG/JPG/PDF 导出、文件名、下载
+    ├── components/
+    │   ├── AppHeader.tsx         # 标题、隐私标识、重置
+    │   ├── PrivacyNotice.tsx     # 本地处理说明
+    │   ├── FieldRow.tsx          # 设置项标签 + 控件的统一排版
+    │   ├── UploadPanel.tsx       # 空状态上传入口（点击/拖拽）
+    │   ├── FaceCard.tsx          # 面位卡片：成品预览、重传、移除
+    │   ├── FaceOutputPreview.tsx # 面位"成品效果"预览画布
+    │   ├── CropEditor.tsx        # react-easy-crop 裁剪编辑区
+    │   ├── LayoutPanel.tsx       # 规格、版式、对齐、份数、位置微调
+    │   ├── A4Preview.tsx         # A4 预览（可拖动微调面位）
+    │   ├── ExportPanel.tsx       # 格式、DPI、导出按钮
+    │   └── PrintTips.tsx         # 打印须知与常见问题
+    └── pages/HomePage.tsx        # 主页面：三栏工作区编排
+```
+
+> 与初版方案的偏差（已同步）：
+>
+> - 未新建 `hooks/useA4Preview.ts`：A4 预览的重绘逻辑内聚在 `components/A4Preview.tsx` 的 effect 中，单独抽 hook 只会增加一层无收益的间接。
+> - 未新建 `utils/notify.ts`：统一改用 antd `App.useApp()` 提供的 `message` 实例，避免静态方法脱离 `ConfigProvider` 上下文。
+> - 新增 `hooks/useProject.ts`：把预设、版式计划、合成函数聚合成单一模型，供预览、导出与设置面板共用同一份真值。
+> - 新增 `utils/renderFace.ts` 与 `components/FaceOutputPreview.tsx`：裁剪编辑器与面位卡片都需要"按规格渲染的成品预览"。
+
+---
+
+## 关键实现细节
+
+### 1. 毫米与像素换算
+
+```ts
+export const A4 = { widthMm: 210, heightMm: 297 } as const;
+export const mmToPx = (mm: number, dpi: number) => Math.round((mm / 25.4) * dpi);
+```
+
+| 目标 | 计算 | 结果 |
+| ---- | ---- | ---- |
+| A4 @300DPI | `210/25.4*300` × `297/25.4*300` | 2480 × 3508 px |
+| A4 @150DPI | 同上按 150 | 1240 × 1754 px |
+| 88×56mm @300DPI | `88/25.4*300` × `56/25.4*300` | 1039 × 661 px |
+| 85.6×54mm @300DPI | `85.6/25.4*300` × `54/25.4*300` | 1011 × 638 px |
+
+### 2. 裁剪区域重采样（消除尺寸漂移）
+
+1. 设源图尺寸 `W0 × H0`，总旋转角 `θ = quarterTurns × 90 + fineRotation`。
+2. 计算旋转后包围盒：`Wb = |W0·cosθ| + |H0·sinθ|`，`Hb = |W0·sinθ| + |H0·cosθ|`（**注意**：`croppedAreaPixels` 的坐标系基于旋转后的图像，与 react-easy-crop 内部一致）。
+3. 新建目标画布，尺寸为规格像素尺寸 `Wt × Ht`，先铺白底。
+4. 把「旋转 → 裁剪 → 缩放」合成为**一次仿射变换**直接绘制源图，缩放比 `sx = Wt / crop.width`、`sy = Ht / crop.height`：
+
+```ts
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
+ctx.translate(-crop.x * sx, -crop.y * sy); // 裁剪起点移到画布原点
+ctx.scale(sx, sy); // 缩放比作用到后续绘制
+ctx.translate(Wb / 2, Hb / 2); // 对齐旋转包围盒中心
+ctx.rotate((θ * Math.PI) / 180); // 旋转
+ctx.translate(-W0 / 2, -H0 / 2); // 对齐源图中心
+ctx.drawImage(image, 0, 0);
+```
+
+5. 该写法与"先渲染整张旋转图再裁剪"完全等价，但不分配与原图等大的中间画布（12MP 手机图单张可达约 50MB）。该结果即"符合规格的标准图片"，任何缩放倍率下输出像素只由 `Wt/Ht` 决定，与用户缩放程度无关。
+
+**裁剪区域有效性守卫（NaN 防御）**：
+
+- **成因**：`react-easy-crop` 在弹窗卸载、容器尺寸为 0（被隐藏或尚未完成布局）时会通过 `onCropComplete` 回传 `NaN`。NaN 写入 store 后 `crop.width > 0` 判定失败，绘制被静默跳过，成品渲染成纯白 —— 用户侧表现为"调整裁剪后图片丢失"。
+- **对策（三层防御）**：① `CropEditor.onCropComplete` 入口用 `isValidCropArea` 拦截，`NaN` 不写入 store；② `drawCropRegion` 内部再次守卫，裁剪区域无效时直接返回；③ `renderFaceCanvas` 在裁剪数据缺失/无效时回退 `computeDefaultCrop` 的默认居中裁剪。
+- **连带修正**：`useProject` 的 `activeKinds` 只判断 `source` 是否存在，不再把 `croppedAreaPixels` 作为参与排版的条件，避免裁剪数据异常时整张面位从纸张上消失。
+
+**react-easy-crop 坐标系约定（已对照库源码确认，`index.module.mjs` 的 `computeCroppedArea`）**：
+
+- `onCropChange` 回传的 `crop: {x, y}` 是**容器像素**偏移（会随缩放归一化），仅用于受控状态回填，不参与尺寸计算。
+- `onCropComplete` 回传的 `croppedAreaPixels` 位于**旋转后的原图像素空间**，`x/y` 为左上角坐标，`width/height` 已被库对齐到精确的目标宽高比。
+- 因此上述第 4 步可以直接把 `croppedAreaPixels` 当作"旋转坐标系下的矩形"使用，无需再做坐标换算。
+- 旋转角不为 0 时库会关闭位置限制（`limitAreaFn = noOp`），`croppedAreaPixels` 可能越出图片边界，故引入 `drawCropRegion` 按有效区域等比映射。
+
+### 3. A4 版式计算
+
+以毫米空间计算，先求分组尺寸，再求整页内容块尺寸，最后换算像素：
+
+```text
+gap      = 正反面间距，取 layout.gapMm（默认 10mm，可调 2–30mm）
+copyGap  = 8mm
+faceCount = 实际存在的面位数量（1 或 2）
+
+上下排列: group = { w: presetW, h: faceCount * presetH + (faceCount - 1) * gap }
+左右排列: group = { w: faceCount * presetW + (faceCount - 1) * gap, h: presetH }
+
+content = copies === 1 ? group : { w: group.w, h: copies * group.h + (copies - 1) * copyGap }
+
+居中: origin = ((A4.w - content.w) / 2, (A4.h - content.h) / 2)
+边距: origin = (10, 10)
+
+第 i 份、第 j 面的毫米坐标:
+  上下排列 -> (origin.x, origin.y + i * (group.h + copyGap) + j * (presetH + gap))
+  左右排列 -> (origin.x + j * (presetW + gap), origin.y + i * (group.h + copyGap))
+
+最终坐标 = 版式坐标 + face.offset（用户微调）
+```
+
+### 4. 溢出保护
+
+绘制前对每个面位执行钳制，保证内容始终落在 A4 安全区内（边距 5mm）：
+
+```text
+x ∈ [5, A4.widthMm - presetW - 5]
+y ∈ [5, A4.heightMm - presetH - 5]
+```
+
+越界时取边界值，同时把钳制后的结果写回 store，避免"预览与导出不一致"。
+
+### 5. 尺寸校验与溢出提示
+
+版式计算完成后校验 `content` 是否超出 `A4 - 2 × 10mm`，超出则在 `A4Preview` 顶部展示警告条。当前档位组合（88×56、2 份）理论占用 248mm，正常不会溢出，该逻辑主要用于防御后续规格扩展。
+
+### 6. 导出
+
+| 格式 | 实现 | 备注 |
+| ---- | ---- | ---- |
+| PNG | `canvas.toBlob(type, 'image/png')` | 无损，体积较大（A4@300DPI 约 3–8MB） |
+| JPG | `canvas.toBlob(type, 'image/jpeg', 0.95)` | 体积约为 PNG 的 1/5 |
+| PDF | `jsPDF` + `addImage(dataUrl, 'JPEG', 0, 0, 210, 297)` | 页面物理尺寸 A4，`output('blob')` 后走统一下载 |
+
+### 7. 内存与性能
+
+- A4 @300DPI 画布约 `2480 × 3508 × 4B ≈ 34.8MB`，单张可接受；预览使用独立的小尺寸画布（宽约 480px）避免常驻大画布。
+- 预览重绘在 `requestAnimationFrame` 中合并（拖动/滑块高频触发时依赖 ahooks `useDebounceFn` 节流）。
+- 每次替换图片时对上一个 `objectURL` 调用 `URL.revokeObjectURL`，防止内存泄漏。
+
+---
+
+### 8. 拖拽对齐辅助（参考标尺 + 吸附）
+
+拖动是唯一会把面位放到「非标准位置」的操作，因此对齐辅助全部围绕拖动过程展开：
+
+1. **标尺**：预览画布上方与左侧各放一条 18px 的 DOM 标尺，刻度每 10mm 一格、每 50mm 一个数字标注。刻度用百分比定位（`left: mm / 210 * 100%`），因此标尺不依赖预览的实际像素宽度，自适应任何栏宽。
+2. **锚点**：吸附候选线由 `utils/alignment.resolveSnap` 在毫米空间生成，共三类 ——
+   - 页面中心线（`105mm` / `148.5mm`）与安全边距线（`10mm`、`200mm` / `10mm`、`287mm`）；
+   - 其它面位的起始边、中心、结束边（用于两面对齐与居中）；
+   - 被拖动面位自身也有三条可对齐的边：起始边、中心、结束边。
+3. **吸附**：对每个轴向遍历「参考线 × 面位三条边」的组合，取距离最近且 `|Δ| ≤ SNAP_THRESHOLD_MM`（2.5mm）的一组，把面位平移 `Δ`。吸附在毫米空间完成，因此吸上去就是精确的毫米值，与预览缩放无关。
+4. **参考线**：命中的参考线画在与纸张**等尺寸的独立叠加画布**上（红色 5/4 虚线），叠加画布 `pointer-events: none`，既不影响拖动命中判定，也不会进入导出结果（TD16）。
+5. **标尺高亮**：拖动过程中，被拖动面位占据的区间会在两条标尺上以半透明蓝条标出，便于和刻度直接对照。
+6. **与钳制的次序**：先钳制到安全区 → 再吸附 → 再钳制一次；若第二次钳制改变了某个轴的取值，则该轴的参考线不再显示，避免出现"线到了、图没到"的误导。
+
+---
+
+## 风险与对策
+
+| 风险 | 影响 | 对策 |
+| ---- | ---- | ---- |
+| 用户拍摄角度倾斜严重，平面旋转无法拉正 | 输出变形，尺寸正确但观感差 | R15 提供拍摄引导（卡片平放、正上方俯拍、避免反光）；文档明确能力边界（非目标） |
+| 低分辨率图片放大到 300 DPI 输出后模糊 | 打印质量不达标 | 校验阶段反算有效 DPI，低于 300 时给出显式警告并建议切换 150 DPI 或重拍 |
+| 浏览器不支持 HEIC 解码（Chrome/Edge） | 上传后无法预览 | 检测格式并提示"请在系统相册中导出为 JPG 后重试"，不作为错误阻断 |
+| 用户打印时使用"适合页面"导致尺寸缩小 | 尺寸不符合标准 | `PrintTips` 常驻提示 + 可选 50mm 校准标尺，供用户打印后自检 |
+| `croppedAreaPixels` 坐标系与旋转状态不一致 | 裁剪结果错位 | 采用 react-easy-crop 官方推荐的旋转包围盒算法，并在开发文档记录公式 |
+| `react-easy-crop` 在弹窗卸载 / 容器尺寸为 0 时回传 `NaN` 裁剪区 | 成品渲染成空白纸张（已实际发生：调整裁剪后图片丢失） | 三层 NaN 守卫：编辑器入口拦截 → 绘制函数二次守卫 → 渲染层回退默认裁剪；并保留 `pnpm verify:crop` 回归脚本，覆盖拖动 / 缩放 / 旋转 / 复位 / 关闭弹窗全部阶段 |
+| 单帧分配与原图等大的旋转中间画布 | 12MP 手机图单张约 50MB，连续拖动时移动端易 OOM 或掉帧 | 用一次仿射变换替代中间画布（TD4），单帧只分配目标尺寸画布 |
+| 不同受理机构对复印件上正反面的间距要求不一致 | 固定间距可能被窗口以「排版不符」为由退回 | 默认取市面通行值 10mm，并在排版面板开放 2–30mm 调节（TD14）；间距过大导致溢出时由 A4 预览的溢出提示兜底 |
+| 吸附阈值（2.5mm）内无法用鼠标停出任意位置 | 用户想精确放在距参考线 1~2mm 处时会被吸走 | 位置微调 X / Y 输入框（步进 0.5mm）不受吸附影响，可直接输入精确值；需要时调小 `SNAP_THRESHOLD_MM` |
+
+---
+
+## 待确认事项
+
+以下为开发过程中需要用户确认的产品决策，已按默认值先行实现：
+
+| 编号 | 待确认项 | 当前默认 | 影响 |
+| ---- | -------- | -------- | ---- |
+| Q1 | 默认规格取 88×56mm（复印件标准）还是 85.6×54mm（原大） | 已按 88×56mm 实现，可一键切换 | R6、R11 的默认输出尺寸 |
+| Q2 | 是否保留"每页 2 份" | 已保留并验证 | R9 |
+| Q3 | 是否需要"仅供 XX 使用"水印 | 未实现 | 非目标项 |
+| Q4 | 是否需要草稿持久化 | 未实现（隐私优先） | 非目标项 |
+
+## 复现验证
+
+```bash
+pnpm install                 # 首次安装（走 .npmrc 中的淘宝源）
+pnpm typecheck && pnpm lint && pnpm build
+pnpm verify:logic            # 纯逻辑断言，无需浏览器
+pnpm dev --host 127.0.0.1 --port 5199   # 另开一个终端
+pnpm verify:e2e              # 无头 Chrome 全流程验证（默认访问 127.0.0.1:5199）
+pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/关闭弹窗后不得丢画面
+```
+
+`verify:e2e`、`verify:crop` 均支持 `APP_URL`、`CDP_PORT`、`SCREENSHOT_PATH` 环境变量覆盖；脚本仅使用本地 Chrome 与 CDP，不引入额外浏览器依赖。
+
+> `verify:crop` 需要读取 Zustand store 内部状态做断言，因此 `src/main.tsx` 中保留了 `import.meta.env.DEV` 守卫下的开发探针（`window.__idCardStore`）。该分支在生产构建时会被静态移除，不影响产物体积与安全边界。
+
+---
+
+## 实施记录
+
+| 日期 | 代码或方案变更 | 关联需求 | 影响 |
+| ---- | -------------- | -------- | ---- |
+| 2026-10-14 | 建立开发方案文档：确定技术栈、版式计算、导出链路与决策集 TD1–TD11 | 全部 | 全部 |
+| 2026-10-14 | 工程初始化：Vite 6 + React 19 + TS 严格模式 + antd 5 + Tailwind 4 + ahooks + Ramda + Zustand；`.npmrc` 指定淘宝源；`pnpm.onlyBuiltDependencies` 放行 esbuild / @tailwindcss/oxide | 全部 | 构建链路 |
+| 2026-10-14 | 补充依赖 `@ant-design/v5-patch-for-react-19`（antd 5 在 React 19 下必需）；引入 `react-easy-crop` 裁剪库并导入其 `react-easy-crop.css`（容器定位样式必需） | R5 | 运行时兼容 |
+| 2026-10-14 | Tailwind 4 与 antd 5 采用 `@layer theme, base, antd, components, utilities` + `StyleProvider layer` 分层，避免 preflight 重置破坏 antd 组件（TD6） | R16 | 全局样式 |
+| 2026-10-14 | 新增 `constants/idCard.ts`（规格预设、A4、DPI、间距、换算函数）与 `types/idCard.ts`（FaceState、LayoutSettings、DeepPartial 等） | R6、R7 | 领域模型 |
+| 2026-10-14 | 新增 `utils/geometry.ts`：毫米空间版式计算 + 溢出标记 + `clampFacePosition`；新增 `utils/image.ts`：文件校验、图片缓存、旋转包围盒、裁剪重采样、有效 DPI 估算 | R3、R6、R7、R8、R9、R15 | 核心算法 |
+| 2026-10-14 | `renderCroppedFace` 通过 `drawCropRegion` 处理旋转后裁剪框越界：按有效区域等比映射，越界处保留白底 | R5、R6 | 旋转场景正确性 |
+| 2026-10-14 | 新增 `utils/renderFace.ts`、`utils/renderA4.ts`、`utils/export.ts`（PNG/JPG/PDF、文件名、下载） | R10、R11、R12、R18 | 渲染与导出 |
+| 2026-10-14 | 新增 `stores/useIdCardStore.ts`（Zustand 单 store + `mergeDeepLeft` 深合并 patchFace）与 `hooks/useProject.ts`、`hooks/useFaceEditor.ts`、`hooks/useExport.ts` | R1–R4、R8、R17 | 状态与流程 |
+| 2026-10-14 | 完成全部界面组件（AppHeader、PrivacyNotice、FieldRow、UploadPanel、FaceCard、FaceOutputPreview、CropEditor、LayoutPanel、A4Preview、ExportPanel、PrintTips）与 `pages/HomePage.tsx`（含 Ctrl/⌘+V 粘贴上传） | R1、R2、R4、R5、R12、R15、R16 | 交互层 |
+| 2026-10-14 | 修复 antd 弃用告警：`InputNumber addonBefore` 改为独立标签 | R8 | 消除运行期告警 |
+| 2026-10-14 | 新增验证脚本 `scripts/verify-entry.ts` + `scripts/verify-geometry.mjs`（纯逻辑断言）、`scripts/verify-e2e.mjs`（CDP 驱动无头 Chrome 全流程）；`package.json` 增加 `verify:logic` / `verify:e2e` | 全部 | 验证能力 |
+| 2026-10-14 | ESLint 忽略 `tmp/` 构建产物并把 `.mjs` 纳入检查范围 | — | 工具链 |
+| 2026-10-14 | 新增 `AGENTS.md`（项目 AI 协作规范、安全边界、尺寸常量）与 `docs/使用说明.md`、`README.md` | 全部 | 协作与文档 |
+| 2026-10-14 | 按实现结果同步「模块与文件规划」「需求-方案映射」状态，并补充 TD12、TD13 | 全部 | 消除文档漂移 |
+| 2026-10-14 | **修复缺陷「调整裁剪后图片丢失」**：新增 `isValidCropArea` 守卫；`drawCropRegion` 改为单次仿射变换并在内部二次守卫；`renderFaceCanvas` 在裁剪无效时回退 `computeDefaultCrop`；`useProject.activeKinds` 改为只判断 `source`；`patchFace` 改回浅合并并删除 `DeepPartial` | R5 | 成品不再变白（呼应 TD4、TD11） |
+| 2026-10-14 | 新增回归脚本 `scripts/verify-crop-editing.mjs` 与 `pnpm verify:crop`，覆盖裁剪编辑全阶段；`src/main.tsx` 增加 `import.meta.env.DEV` 守卫下的 `window.__idCardStore` 探针供脚本断言 | R5 | 验证能力 |
+| 2026-10-14 | 同步文档：R5 升为 `已验证` 并修正细调旋转范围为 ±45°；更新 TD4 / TD11；补充「关键实现细节」的仿射变换公式与 NaN 防御说明；风险表新增 NaN 与中间画布内存两条 | R5 | 消除文档漂移 |
+| 2026-10-14 | 调研「身份证复印件上正反面间距」：未找到规定该间距的国标；市面同类工具默认值为 10mm（两个独立实现），据此确定默认 10mm（TD14） | R7 | 默认值依据 |
+| 2026-10-14 | 新增 `DEFAULT_FACE_GAP_MM` / `FACE_GAP_RANGE_MM` 常量并移除 `LAYOUT_GAP_MM`；`LayoutSettings` 增加 `gapMm`；`buildLayoutPlan` 改为按 `gapMm` 计算（NaN / 负数回退默认值）；`LayoutPanel` 新增「正反面间距」滑块 + 数值输入；`A4Preview` 溢出提示补充间距建议 | R7 | 默认间距 6mm → 10mm，并开放 2–30mm 调节 |
+| 2026-10-14 | `verify:logic` 断言随间距改动重算（41 → 47 项，新增间距默认值 / 20mm / 0mm / NaN 四类断言）；`verify:e2e` 新增 4 项端到端断言，测量 A4 预览上两条内容带的顶边距离反推实测间距（16 → 21 项） | R7 | 验证能力 |
+| 2026-10-14 | 同步文档：AGENTS.md 常量表、`docs/使用说明.md` 排版说明 | R7 | 消除文档漂移 |
+| 2026-10-14 | 新增 R19 拖拽对齐辅助：`utils/alignment.ts`（毫米空间吸附，锚点为页面中心线 / 安全边距线 / 其它面位的边缘与中心）；`A4Preview` 增加上 / 左 mm 参考标尺、参考线叠加画布与拖动区间高亮；`LayoutSettings.showPreviewRuler` 开关（默认开启）；新增 `RULER_TICK_MM` / `RULER_MAJOR_TICK_MM` / `SNAP_THRESHOLD_MM` 常量（TD15、TD16） | R19 | 交互层 |
+| 2026-10-14 | `verify:logic` 新增 11 项吸附断言（47 → 58）；`verify:e2e` 新增 7 项真实拖拽断言（21 → 28） | R19 | 验证能力 |
+| 2026-10-14 | 同步文档：需求文档新增 R19、开发方案补充 TD15 / TD16 与「关键实现细节 §8」、AGENTS.md 与 `docs/使用说明.md` | R19 | 消除文档漂移 |
+
+---
+
+## 验证结果
+
+| 日期 | 验证项 | 方式 | 结果 |
+| ---- | ------ | ---- | ---- |
+| 2026-10-14 | 文档与分支绑定 | `git branch --show-current` = `feature/id-card-combination-tool-online` | 通过 |
+| 2026-10-14 | 类型检查 | `pnpm typecheck`（tsc 严格模式） | 通过，0 错误 |
+| 2026-10-14 | 静态检查 | `pnpm lint`（ESLint 9 flat config，含圈复杂度 ≤ 10、max-depth ≤ 4） | 通过，0 错误 0 警告 |
+| 2026-10-14 | 生产构建 | `pnpm build` | 通过，jsPDF 按动态 import 拆分为独立 chunk |
+| 2026-10-14 | 格式一致性 | `pnpm format:check` | 通过 |
+| 2026-10-14 | 尺寸与版式逻辑 | `pnpm verify:logic`（esbuild 打包纯逻辑模块后在 Node 断言） | 58/58 通过：吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0、正反面间距默认 10mm / 20mm / 0mm / NaN、A4@300DPI=2480×3508、88×56@300DPI=1039×661、上下/左右排列坐标、距边对齐、单面居中、2 份叠放无重叠、越界钳制、默认裁剪居中、有效 DPI 判据、文件名、上传校验 |
+| 2026-10-14 | 浏览器端全流程 | `pnpm verify:e2e`（CDP 驱动无头 Chrome：合成测试身份证图 → 上传正反面 → 排版 → 真实鼠标拖拽 → 导出） | 28/28 通过：参考标尺默认显示且可关闭、拖拽中绘制参考线且松开后清除、横向吸附到 10mm 安全边距线（`offset.xMm = -51`）、纵向吸附到 148.5mm 页面中心线（`offset.yMm = 61`）、默认间距 10mm、A4 预览实测间距 9.69mm、A4 预览 520×735（比例 210:297）且已绘制内容、PDF `MediaBox=[0 0 595.28 841.89]` 即 210×297mm、PDF 内嵌位图 2480×3508、导出 PNG 实测 2480×3508、2 份后纸张内容翻倍、左右排列正常、Network 域无任何跨域请求、无控制台错误 |
+| 2026-10-14 | 视觉核对 | 无头 Chrome 截图人工确认 | 通过：上下排列居中、左右排列 2 份版式、成品预览与设置面板渲染均正确 |
+| 2026-10-14 | 裁剪编辑回归（缺陷复验） | `pnpm verify:crop`（CDP 驱动无头 Chrome：上传 4000×3000 测试图 → 拖动 → 放大至 3.94 倍 → 旋转微调 10.7° → 右转 90° → 复位 → 关闭弹窗） | 通过，8/8 阶段：A4 画面着色像素 27930–30302、面位预览 10240–11088、裁剪区域始终为有限正数。修复前第 8 阶段 A4=0 且 cropArea 为 null，修复后未复现 |
+| 2026-10-14 | 全量回归（含间距与拖拽对齐辅助） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 58/58、E2E 28/28、裁剪回归 8/8 |
+| 2026-10-14 | 间距默认值实测 | 无头 Chrome 像素级测量 A4 预览画布：两张卡顶边分别在 87.63mm / 153.46mm，每张高 56.13mm，实测间距 9.69mm | 通过：与设定值 10mm 及规格 88×56mm 一致（误差来自渲染取整） |
+| 2026-10-14 | 参考线渲染实测 | 无头 Chrome 统计参考线叠加画布的不透明像素列 / 行 | 通过：仅 1 条竖线（10.10mm）与 1 条横线（148.62mm），与吸附锚点一致，无多余线条 |
+| 2026-10-14 | 视觉核对 | 无头 Chrome 拖拽中截图人工确认 | 通过：上 / 左 mm 标尺、拖动区间蓝色高亮、红色虚线参考线、吸附后位置微调显示 X `-51.0` / Y `61.0` 均正确 |

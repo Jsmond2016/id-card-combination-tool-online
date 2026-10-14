@@ -1,0 +1,96 @@
+# 身份证复印件在线生成工具 — AI 协作规范
+
+## 项目概述
+
+纯浏览器端的在线工具：上传身份证正反面照片 → 裁剪校正 → 按国家标准尺寸排版到 A4 → 导出 PNG/JPG/PDF → 直接打印。
+
+**无后端、无接口、无网络请求**，全部处理在浏览器内完成。
+
+## 关键领域常量（修改前必须确认）
+
+尺寸以**毫米**为唯一真值，像素由 DPI 派生（`px = mm / 25.4 × dpi`）。定义集中在 `src/constants/idCard.ts`，禁止在组件内硬编码数值。
+
+| 项目 | 值 |
+| ---- | -- |
+| 二代身份证物理尺寸 | 85.6mm × 54mm（ISO/IEC 7810 ID-1） |
+| 复印件标准规格 | 88mm × 56mm（默认预设） |
+| A4 | 210mm × 297mm |
+| 默认输出精度 | 300 DPI（A4 = 2480 × 3508 px） |
+| 安全边距 | 10mm（版式）/ 5mm（拖动钳制） |
+| 正反面间距（默认 / 可调范围） | 10mm / 2–30mm（用户可调，`DEFAULT_FACE_GAP_MM`） |
+| 每页多份时的份与份间距 | 8mm（`COPY_GAP_MM`） |
+| 预览参考标尺刻度 / 主刻度 | 10mm / 50mm（`RULER_TICK_MM` / `RULER_MAJOR_TICK_MM`） |
+| 拖拽吸附阈值 | 2.5mm（`SNAP_THRESHOLD_MM`） |
+
+## 技术栈约束
+
+- React 19 + TypeScript 严格模式，**禁止 class 组件**与 `this`。
+- UI 统一使用 Ant Design 5；布局与间距优先 Tailwind CSS 工具类。
+- 通用逻辑优先用 ahooks（`useSetState`、`useMemoizedFn`、`useBoolean` 等），避免滥用 `useEffect`。
+- 数据变换优先 Ramda 纯函数，仅在确实提升可读性时使用，禁止为用而用。
+- 跨组件共享状态集中在 `src/stores/`（Zustand），禁止多层 props 透传。
+- **不得引入任何请求库**（axios / react-query / fetch 调用），见"安全边界"。
+
+## 目录约定
+
+```text
+src/
+├── components/   # 通用组件，命名导出，PascalCase
+├── pages/        # 页面组件，默认导出，PascalCase
+├── hooks/        # useXxx，文件名 useCamelCase
+├── stores/       # useXxxStore，文件名 camelCase
+├── utils/        # 纯函数工具，禁止直接操作 store
+├── constants/    # 常量与换算函数
+└── types/        # TypeScript 类型定义
+```
+
+- 导入顺序：React → 第三方库 → 内部组件 → hooks/stores/utils → 类型（`import type`）。
+- 列表渲染必须使用稳定唯一 key，禁止用数组下标。
+- 单一函数圈复杂度不超过 10，超过则拆分。
+
+## 安全边界（最高优先级）
+
+1. **身份证图片是最高敏感级个人信息**：禁止上传、禁止持久化、禁止写入 localStorage/IndexedDB、禁止输出到日志或错误上报。
+2. 不新增任何网络请求；`antd Upload` 必须通过 `beforeUpload` 返回 `false` 阻止组件内置上传行为。
+3. 不在代码、注释、示例中写入真实身份证号、姓名或地址等个人信息。
+4. 替换或移除图片时必须调用 `URL.revokeObjectURL` 释放内存。
+
+## 文档协作
+
+- 需求与开发方案文档位于 `specs/{需求名}/`，由当前 Git 分支名推导（去掉第一段前缀）。
+- 需求变更先改需求文档 → 再改开发方案 → 用户确认后才改代码。
+- 任何代码变更（含重构、修复、配置、构建产物）都必须同步更新开发方案文档的"实施记录"。
+- 行为或范围变化必须同步更新需求文档并记录到"变更记录"。
+- 不得在未运行验证的情况下宣称需求"已验证"；无法验证时需写明原因。
+
+## 常用命令
+
+```bash
+pnpm dev          # 开发服务器
+pnpm build        # 类型检查 + 生产构建
+pnpm typecheck    # 仅类型检查
+pnpm lint         # ESLint
+pnpm format       # Prettier 格式化
+```
+
+## 提交规范
+
+遵循 Angular Commit Convention，使用中文描述：
+
+```text
+<type>(<scope>): <中文描述>
+```
+
+- `feat` 新功能、`fix` 修复、`docs` 文档、`style` 格式、`refactor` 重构、`perf` 性能、`test` 测试、`chore` 构建与工具。
+- 提交前保证 `pnpm lint` 与 `pnpm build` 通过。
+
+## 测试协作
+
+- 本项目为纯前端工具，验证以类型检查、Lint、构建与浏览器实测为主。
+- 浏览器实测要求：上传正反面 → 调整 → 导出 PDF，用 PDF 阅读器确认页面尺寸为 210 × 297mm。
+- 不得为了通过验证而放宽校验规则或注释掉断言。
+
+## 工具使用限制
+
+- 执行写操作（删除文件、`git push`、发布）前需用户确认。
+- 可自主执行：读取文件、代码分析、`pnpm lint`、`pnpm typecheck`、`pnpm build`。

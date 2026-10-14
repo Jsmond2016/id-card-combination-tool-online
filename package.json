@@ -1,0 +1,64 @@
+{
+  "name": "id-card-combination-tool-online",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "身份证复印件在线生成工具：上传正反面，按标准尺寸排版到 A4，导出图片或 PDF",
+  "packageManager": "pnpm@10.23.0",
+  "engines": {
+    "node": ">=20.19.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify:logic": "esbuild scripts/verify-entry.ts --bundle --format=cjs --platform=node --alias:@=./src --outfile=tmp/verify-entry.cjs --log-level=warning && node scripts/verify-geometry.mjs tmp/verify-entry.cjs",
+    "verify:e2e": "node scripts/verify-e2e.mjs",
+    "verify:crop": "node scripts/verify-crop-editing.mjs"
+  },
+  "dependencies": {
+    "@ant-design/cssinjs": "^1.23.0",
+    "@ant-design/icons": "^5.5.2",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
+    "ahooks": "^3.8.4",
+    "antd": "^5.24.0",
+    "jspdf": "^3.0.0",
+    "ramda": "^0.30.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-easy-crop": "^5.2.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/node": "^22.13.0",
+    "@types/ramda": "^0.30.2",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.28.2",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-react-hooks": "^5.1.0",
+    "eslint-plugin-react-refresh": "^0.4.18",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "tailwindcss": "^4.0.6",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.23.0",
+    "vite": "^6.1.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "@tailwindcss/oxide"
+    ]
+  }
+}
