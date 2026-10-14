@@ -212,7 +212,7 @@ export const A4Preview = ({ model }: A4PreviewProps) => {
     <Card
       title="A4 预览（所见即打印结果）"
       extra={
-        <Typography.Text type="secondary" className="text-xs">
+        <Typography.Text type="secondary" className="hidden text-xs sm:inline">
           {preset.label} · 已放置 {activeKinds.length} 个面位
         </Typography.Text>
       }

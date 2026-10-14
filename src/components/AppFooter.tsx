@@ -12,7 +12,7 @@ export const AppFooter = () => (
         href={PROJECT_REPO_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-xs"
+        className="break-all text-xs"
       >
         {PROJECT_REPO_LABEL}
       </Typography.Link>

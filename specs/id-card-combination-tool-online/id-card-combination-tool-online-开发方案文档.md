@@ -73,7 +73,7 @@ flowchart LR
 | R12 | `PrintTips` 常驻提示与 FAQ；`LayoutPanel` 提供「打印校准尺」开关（默认关闭），开启时在 A4 底部绘制 50mm 标尺 | `components/PrintTips.tsx`、`utils/renderA4.ts` | 界面实测渲染正常；标尺未做打印实物量测 | 已实现 |
 | R13 | 全站不引入任何请求库；`beforeUpload` 返回 `false` 阻止 antd 内置上传；无 `fetch`/`XHR` 调用 | 全局 | 浏览器实测启用 Network 域采集全流程请求：除本地开发服务器外无任何跨域请求 | 已验证 |
 | R15 | `validateImageFile` 对 HEIC/HEIF 给出专属提示；`estimateEffectiveDpi` 反算有效精度，低于 300 DPI 时在 `FaceCard` 显示告警标签；FAQ 覆盖非身份证比例与拍摄建议 | `utils/image.ts`、`components/FaceCard.tsx`、`components/PrintTips.tsx` | 断言：HEIC 提示文案、低分辨率判据；界面告警渲染未自动化验证 | 已实现 |
-| R16 | antd `Row/Col` 栅格 + Tailwind 响应式前缀；异步操作使用 `App.useApp()` 消息反馈与按钮 loading | `pages/HomePage.tsx`、各组件 | 1440px 宽度下实测布局正常；768px 宽度未实测 | 已实现 |
+| R16 | antd `Row/Col` 栅格 + Tailwind 响应式前缀；异步操作使用 `App.useApp()` 消息反馈与按钮 loading；窄屏约束见「关键实现细节 §10」（固定最小宽度一律写成 `min(值, 100%)`） | `pages/HomePage.tsx`、各组件、`src/index.css` | 浏览器实测 320 / 360 / 390px 视口下整页与裁剪弹窗均无横向滚动、卡片标题未被截断（`verify:e2e` 移动端回归）；另在 240–1920px 全宽度扫描与根字号 16–24px 扫描中确认整页无横向溢出 | 已验证 |
 | R17 | `ExportPanel` 提供 150 / 300 DPI 分段控件，默认 300 | `components/ExportPanel.tsx`、`constants/idCard.ts` | 断言：150 DPI 时 A4 = 1240 × 1754；300 DPI 已浏览器实测 | 已验证 |
 | R18 | `buildFileName(extension, now?)` 生成 `身份证复印件_YYYYMMDD_HHmm.ext` | `utils/export.ts` | 断言：固定时间下输出 `身份证复印件_20261014_0905.pdf` | 已验证 |
 | R19 | `A4Preview` 用 CSS flex 排布「上/左标尺 + 纸张画布 + 参考线叠加画布」；标尺刻度与高亮区间用百分比定位，随预览尺寸自适应；拖动时 `utils/alignment.resolveSnap` 在毫米空间计算吸附位置与参考线，参考线画在独立的叠加画布上（`pointer-events: none`），避免污染导出画布 | `components/A4Preview.tsx`、`utils/alignment.ts`、`stores/useIdCardStore.ts` | 断言覆盖吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0；浏览器实测真实鼠标拖拽后 `offset` 精确落在参考线上（横向 -51mm → 左边缘 10mm、纵向 +61mm → 上边缘 148.5mm），拖拽中叠加画布有参考线像素、松开后清零，关闭开关后标尺不再占位 | 已验证 |
@@ -343,6 +343,35 @@ tiles     = { (i * stepX, j * stepY) | i ∈ [-maxIndexX, maxIndexX], j ∈ [-ma
 
 ---
 
+### 10. 移动端窄屏适配（避免横向滚动条）
+
+#### 缺陷复盘（用户反馈：手机 H5 端出现横向滚动条）
+
+| 现象 | 根因 | 判定依据 |
+| ---- | ---- | -------- |
+| 窄屏打开「调整裁剪」弹窗后弹窗内出现横向滚动条 | `CropEditor` 的滑块列写死 `min-w-[320px]`；antd 弹窗在窄屏的宽度为 `100vw - 16px`，减去 body 左右各 24px 内边距后内容区不足 320px，Flex 子项拒绝收缩就把内容顶出了弹窗 | 无头 Chrome 实测弹窗容器：320px 视口横向滚动 32px、344px 视口 8px；359–360px 视口虽不滚动，但右侧内边距被完全吃掉（列右边缘 == 弹窗右边缘），仍属异常 |
+| 卡头标题被省略号截断（如「A4 预览（所见即…」） | antd `.ant-card-head-title` 默认 `white-space: nowrap` + `text-overflow: ellipsis`，而该卡片的 `extra`（`88 × 56 mm · 已放置 N 个面位`）在窄屏占满了卡片头 | 实测 390px 视口下标题盒宽 142px、内容 201px；320px 视口下仅剩 72px |
+
+整页横向滚动条在无头 Chrome 中无法复现（240–1920px 全宽度扫描、根字号 16–24px 扫描、`--hide-scrollbars` 开关对比、初始 / 已上传 / 弹窗 / 2 份左右排列+水印各状态均为 0 溢出），故按"消除所有已知溢出源 + 提高长文本与字体放大下的鲁棒性 + 固化回归断言"处理。
+
+#### 约束（新代码必须遵守）
+
+1. **固定最小宽度不得写死**：窄屏可见的容器需要"宽屏保持 N px、窄屏自适应"时，一律写成 `min-w-[min(Npx,100%)]`。`min()` 里的 `100%` 相对容器内容区解析，因此窄屏退化为容器宽度，永不溢出；宽屏仍是 N px。
+2. **卡头标题与 `extra` 二选一**：antd 卡头标题默认不换行，若 `extra` 文案过长，窄屏必须隐藏 `extra`（本项目的做法：A4 预览卡片的规格信息在窄屏隐藏，信息本身仍可在排版面板中看到）。
+3. **长且无空格的文本必须显式允许断行**：仓库地址、导出文件名等，加 `break-all`（`overflow-wrap: normal` 下浏览器只在少数符号后可断行，字体放大后容易顶出容器）。
+4. **关闭 iOS 字体自动放大**：`html { -webkit-text-size-adjust: 100%; text-size-adjust: 100% }`。iOS Safari 会放大"宽文本块"的字号，是真实设备上出现横向滚动条的常见原因，而模拟器不会复现。
+5. **不引入整页 `overflow-x: hidden` 兜底**：该写法会把 `body` 变成滚动容器，破坏 A4 预览列的 `lg:sticky`；且会把真实溢出静默裁掉。溢出必须在源头消除，并由回归断言守住。
+
+#### 回归断言（`pnpm verify:e2e`）
+
+对 320 / 360 / 390px 三个手机视口，在上传图片并打开裁剪弹窗后断言：
+
+- `documentElement.scrollWidth ≤ clientWidth`（整页无横向滚动）；
+- `.ant-modal-wrap` 的 `scrollWidth ≤ clientWidth`（弹窗内无横向滚动）；
+- 不存在 `scrollWidth > clientWidth` 的 `.ant-card-head-title`（标题未被截断）。
+
+---
+
 ---
 
 ## 风险与对策
@@ -359,6 +388,7 @@ tiles     = { (i * stepX, j * stepY) | i ∈ [-maxIndexX, maxIndexX], j ∈ [-ma
 | 不同受理机构对复印件上正反面的间距要求不一致 | 固定间距可能被窗口以「排版不符」为由退回 | 默认取市面通行值 10mm，并在排版面板开放 2–30mm 调节（TD14）；间距过大导致溢出时由 A4 预览的溢出提示兜底 |
 | 吸附阈值（2.5mm）内无法用鼠标停出任意位置 | 用户想精确放在距参考线 1~2mm 处时会被吸走 | 位置微调 X / Y 输入框（步进 0.5mm）不受吸附影响，可直接输入精确值；需要时调小 `SNAP_THRESHOLD_MM` |
 | 水印参数取到极值（字号极小 + 间距极小 + 长文字）导致瓦片数量爆炸 | 预览重绘与导出变慢，极端情况卡死浏览器 | 绘制前把字号 / 间距 / 角度钳制到合法区间（TD19），瓦片数量因此有确定上界（最密 < 400 个，已断言） |
+| 窄屏容器写死固定最小宽度 / 长文本不可断行 | 手机 H5 出现横向滚动条，内容被顶出屏幕（已实际发生：裁剪弹窗 320px 最小宽度） | 窄屏最小宽度一律用 `min(值, 100%)`；长 URL 加 `break-all`；关闭 iOS 字体放大；由 `verify:e2e` 在 320/360/390px 下断言整页与弹层均无横向滚动（见「关键实现细节 §10」） |
 
 ---
 
@@ -425,6 +455,9 @@ pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/
 | 2026-10-14 | 新增 R21 页脚：`constants/project.ts`（署名与仓库地址的唯一真值）、`components/AppFooter.tsx`（作者 + 仓库链接 + 本地处理说明，顶部细线分隔）、`HomePage` 挂载在栅格 `Row` 之外的容器末尾 | R21 | 界面层 |
 | 2026-10-14 | `verify:logic` 新增 3 项署名断言（97 → 100 项）；`verify:e2e` 新增 3 项页脚断言（41 → 44 项） | R21 | 验证能力 |
 | 2026-10-14 | 同步文档：需求文档新增 R21、开发方案补充映射行与模块规划、AGENTS.md 安全边界新增页脚链接约束 | R21 | 消除文档漂移 |
+| 2026-10-14 | 修复手机 H5 横向滚动条：`CropEditor` 的 `min-w-[320px]` 改为 `min-w-[min(320px,100%)]`；`A4Preview` 的卡头 `extra` 窄屏隐藏（`hidden sm:inline`）；`AppFooter` 仓库地址加 `break-all`；`index.css` 增加 `-webkit-text-size-adjust: 100%`；新增「关键实现细节 §10 移动端窄屏适配」 | R16 | 缺陷修复 |
+| 2026-10-14 | `verify:e2e` 新增 9 项移动端视口断言（44 → 53 项）：320 / 360 / 390px 下整页与裁剪弹窗均无横向滚动、卡片标题未被截断 | R16 | 验证能力 |
+| 2026-10-14 | 同步文档：需求文档 R16 验收标准补充「窄屏无横向滚动条」并升为 `已验证`、开发方案补充 §10 与风险项 | R16 | 消除文档漂移 |
 
 ---
 
@@ -451,4 +484,8 @@ pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/
 | 2026-10-14 | 全量回归（含水印） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 97/97、E2E 41/41、裁剪回归 8/8（水印默认关闭，未影响既有链路） |
 | 2026-10-14 | 页脚署名与项目地址 | `pnpm verify:logic` + `pnpm verify:e2e`（CDP 驱动无头 Chrome） | 通过：作者非空、仓库地址为 HTTPS 的 GitHub 地址、展示用短地址与真实地址一致；浏览器实测页脚文案含「项目作者：jsmond2016」、链接 `href` 指向仓库且 `target="_blank"` / `rel` 含 `noopener noreferrer`、页脚内无任何外部资源；全流程仍无第三方请求 |
 | 2026-10-14 | 全量回归（含水印与页脚） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 100/100、E2E 44/44、裁剪回归 8/8 |
+| 2026-10-14 | 移动端横向滚动缺陷定位 | 无头 Chrome 多轮实测量：240–1920px 全宽度扫描、根字号 16/18/20/24px 扫描、`--hide-scrollbars` 开关对比、初始 / 已上传 / 裁剪弹窗 / 2 份左右排列+水印 四种状态 | 整页在所有宽度与状态下横向溢出均为 0px；裁剪弹窗在 320px 视口溢出 32px、344px 溢出 8px、359–360px 右侧内边距被吃掉，定位为 `min-w-[320px]` 所致 |
+| 2026-10-14 | 移动端横向滚动修复复验 | 无头 Chrome 弹窗尺寸实测 | 通过：280 / 300 / 320 / 344 / 359 / 360 / 375 / 390 / 414px 下弹窗容器均无横向滚动，320px 视口的滑块列宽由 320px（溢出）变为 256px（贴合内容区）；被截断的卡片标题由 1 个降为 0 个 |
+| 2026-10-14 | 移动端视口回归 | `pnpm verify:e2e` 新增断言 | 53/53 通过：320 / 360 / 390px 下整页 `scrollWidth == clientWidth`、裁剪弹窗 `scrollWidth == clientWidth`、无卡片标题被截断 |
+| 2026-10-14 | 全量回归（含移动端修复） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 100/100、E2E 53/53、裁剪回归 8/8 |
 | 2026-10-14 | 页脚视觉核对 | 无头 Chrome 截图 `/private/tmp/footer-e2e.png` 人工确认 | 通过：页面底部居中展示作者、仓库地址与「全程本地处理，不上传、不收集任何数据」，顶部细线分隔，宽度自适应且不遮挡导出相关操作 |

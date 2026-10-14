@@ -334,6 +334,54 @@ const FOOTER_PROBE = `(() => {
   };
 })()`;
 
+/**
+ * 移动端 H5 视口回归（R16）：整页与裁剪弹窗都不允许出现横向滚动条。
+ * 成因背景：裁剪弹窗内曾用 `min-w-[320px]`，在模态框内容区不足 320px 的窄屏上会把内容顶出弹窗，
+ * 触发横向滚动；现改为 `min(320px, 100%)`，并用本探针固化。
+ */
+const MOBILE_UPLOAD = `(async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600;
+  canvas.height = 1000;
+  canvas.getContext('2d').fillRect(0, 0, 1600, 1000);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  const input = document.querySelector('.ant-upload-drag input[type="file"]');
+  if (!input) {
+    throw new Error('未找到上传输入框');
+  }
+  const transfer = new DataTransfer();
+  transfer.items.add(new File([blob], 'mobile.png', { type: 'image/png' }));
+  input.files = transfer.files;
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+  await sleep(1200);
+  return true;
+})()`;
+
+const OPEN_CROP_MODAL = `(() => {
+  const button = Array.from(document.querySelectorAll('.ant-btn')).find((item) =>
+    item.textContent.includes('调整裁剪'),
+  );
+  if (!button) {
+    throw new Error('未找到「调整裁剪」按钮');
+  }
+  button.click();
+  return true;
+})()`;
+
+const MOBILE_PROBE = `(() => {
+  const doc = document.documentElement;
+  const wrap = document.querySelector('.ant-modal-wrap');
+  return {
+    viewport: doc.clientWidth,
+    pageScrollWidth: Math.max(doc.scrollWidth, document.body.scrollWidth),
+    modal: wrap ? { clientWidth: wrap.clientWidth, scrollWidth: wrap.scrollWidth } : null,
+    truncatedTitles: Array.from(document.querySelectorAll('.ant-card-head-title'))
+      .filter((el) => el.scrollWidth > el.clientWidth + 1)
+      .map((el) => el.textContent.trim()),
+  };
+})()`;
+
 const findDownload = (directory) => {
   const files = readdirSync(directory).filter((name) => name.endsWith('.pdf'));
   return files.length > 0 ? join(directory, files[0]) : null;
@@ -702,6 +750,38 @@ const main = async () => {
       });
       writeFileSync(SCREENSHOT_PATH, Buffer.from(shot.data, 'base64'));
       console.log(`  · 截图已保存：${SCREENSHOT_PATH}`);
+    }
+    // R16：移动端 H5 视口回归（整页 + 裁剪弹窗均不得出现横向滚动条）
+    for (const width of [320, 360, 390]) {
+      await client.send('Emulation.setDeviceMetricsOverride', {
+        width,
+        height: 844,
+        deviceScaleFactor: 2,
+        mobile: true,
+      });
+      await client.send('Page.navigate', { url: APP_URL });
+      await sleep(2200);
+      await client.evaluate(MOBILE_UPLOAD);
+      await client.evaluate(OPEN_CROP_MODAL);
+      await sleep(1300);
+      const mobile = await client.evaluate(MOBILE_PROBE);
+      record(
+        `移动端 ${width}px 整页无横向滚动`,
+        mobile.pageScrollWidth <= mobile.viewport + 1,
+        `scrollWidth=${mobile.pageScrollWidth} viewport=${mobile.viewport}`,
+      );
+      record(
+        `移动端 ${width}px 裁剪弹窗无横向滚动`,
+        mobile.modal !== null && mobile.modal.scrollWidth <= mobile.modal.clientWidth + 1,
+        mobile.modal
+          ? `scrollWidth=${mobile.modal.scrollWidth} clientWidth=${mobile.modal.clientWidth}`
+          : '未找到弹窗',
+      );
+      record(
+        `移动端 ${width}px 卡片标题未被截断`,
+        mobile.truncatedTitles.length === 0,
+        mobile.truncatedTitles.join(' | ') || '无',
+      );
     }
   } finally {
     chrome.kill('SIGKILL');

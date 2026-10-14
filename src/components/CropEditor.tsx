@@ -81,7 +81,7 @@ export const CropEditor = ({ kind, open, onClose }: CropEditorProps) => {
       </div>
 
       <Flex gap={24} wrap className="mt-4">
-        <Flex vertical gap={4} className="min-w-[320px] flex-1">
+        <Flex vertical gap={4} className="min-w-[min(320px,100%)] flex-1">
           <Typography.Text type="secondary" className="text-xs">
             缩放
           </Typography.Text>

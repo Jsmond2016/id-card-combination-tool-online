@@ -10,6 +10,12 @@ body,
   height: 100%;
 }
 
+html {
+  /* 关闭 iOS 的字体自动放大：放大后长文本会撑宽容器并引出横向滚动条 */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   background-color: #f5f5f5;
