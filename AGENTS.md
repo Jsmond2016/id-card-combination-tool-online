@@ -26,6 +26,19 @@
 | 水印平铺间距（密度）默认 / 可调范围 | 50mm / 20–120mm（`DEFAULT_WATERMARK_SPACING_MM`，数值越小越密） |
 | 水印倾斜角度默认 / 可调范围 | -30° / -90°–90°（`DEFAULT_WATERMARK_ANGLE_DEG`，正值顺时针） |
 | 水印透明度 / 颜色 | 0.18 / `#000000`（固定常量 `WATERMARK_OPACITY` / `WATERMARK_COLOR`，暂不开放为可调项） |
+| 透视矫正默认四角内缩比例 | 4%（`DEFAULT_RECTIFY_INSET_RATIO`） |
+| 透视矫正边缘微调范围 | -5%–+5%（`EDGE_OFFSET_RANGE_PERCENT`，正值向内收缩） |
+| 透视矫正卡面补白 | 规格减去卡体后的余量居中分配（88×56 时左右各 1.2mm、上下各 1.0mm） |
+
+### 透视矫正实现约束（R22）
+
+- 矫正走的是**手动标定四角 + 单应变换**：`resolveHomography` 求「目标矩形 → 源四边形」方向的 8 元方程组，`warpQuadToPixels` 逐像素**反向映射** + 双线性插值。落在四边形之外的采样点直接填白——背景不是被擦除，而是根本不会被采样到。
+- 禁止引入任何 CV / WebGL 依赖（自动找角才需要它们，已列为非目标）。
+- 采样源必须先降到 `min(源尺寸, 2 × 卡面目标尺寸)` 再取像素（TD22），禁止直接对 12MP 原图 `getImageData`。
+- 拖角约束在 `constrainQuadCorner` 里按**凸性判据**实现：只挡会让四边形翻转的拖法，不得改成"象限/外接矩形"之类的规则（会误挡斜拍产生的合法梯形）。
+- 三层退化守卫不可删减：拖角时凸性约束 → 写入与绘制前 `isValidQuad` → 渲染层回退矩形裁剪（`renderFaceCanvas`）。
+- `rectify.enabled` 默认 `false`；矫正模式下**不读取也不写入** `crop` / `zoom` / `quarterTurns` / `croppedAreaPixels`，切回矩形裁剪时必须保留用户此前的裁剪参数。
+- 卡面外的留白必须是**纯白**（模拟复印机在玻璃上复印时卡外的白纸），不得使用任何灰底或纸张纹理。
 
 ### 水印实现约束（R20）
 

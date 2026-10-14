@@ -42,6 +42,16 @@ const {
   estimateEffectiveDpi,
   buildFileName,
   validateImageFile,
+  createDefaultQuad,
+  constrainQuadCorner,
+  isValidQuad,
+  resolveHomography,
+  applyHomography,
+  warpQuadToPixels,
+  applyEdgeOffset,
+  quadArea,
+  quadAverageWidth,
+  resolveCardRect,
 } = require(bundledPath);
 
 let passed = 0;
@@ -472,6 +482,311 @@ check(
   true,
 );
 check('展示用短地址与真实地址一致', PROJECT_REPO_LABEL, PROJECT_REPO_URL.replace('https://', ''));
+
+// --- R22：透视矫正（四点拉正） ---
+// 合成一张"斜拍照片"来断言矫正效果：背景是桌面色，卡片是一个梯形，
+// 卡片四角与"两条对角线的交点"涂上可辨识的标记色。
+const CARD_COLOR = [248, 248, 248];
+const BACKGROUND_COLOR = [200, 60, 40];
+const CORNER_COLORS = [
+  [0, 0, 255],
+  [0, 160, 0],
+  [255, 200, 0],
+  [160, 0, 200],
+];
+const CENTER_COLOR = [0, 0, 0];
+
+const OBLIQUE_QUAD = [
+  { x: 60, y: 40 },
+  { x: 350, y: 70 },
+  { x: 330, y: 260 },
+  { x: 80, y: 230 },
+];
+
+/** 两条对角线的交点：单应变换把"对角线的交点"映射为"对角线的交点"，是射影不变量 */
+const diagonalCenter = (quad) => {
+  const [p0, p1, p2, p3] = quad;
+  const first = { x: p2.x - p0.x, y: p2.y - p0.y };
+  const second = { x: p3.x - p1.x, y: p3.y - p1.y };
+  const denominator = first.x * second.y - first.y * second.x;
+  const ratio = ((p1.x - p0.x) * second.y - (p1.y - p0.y) * second.x) / denominator;
+  return { x: p0.x + first.x * ratio, y: p0.y + first.y * ratio };
+};
+
+const buildPhoto = (width, height, quad) => {
+  const data = new Uint8ClampedArray(width * height * 4);
+  const paint = (x, y, color) => {
+    if (x < 0 || y < 0 || x >= width || y >= height) {
+      return;
+    }
+    const index = (y * width + x) * 4;
+    data[index] = color[0];
+    data[index + 1] = color[1];
+    data[index + 2] = color[2];
+    data[index + 3] = 255;
+  };
+  const insideQuad = (px, py) => {
+    let inside = false;
+    for (let i = 0, j = quad.length - 1; i < quad.length; j = i, i += 1) {
+      const a = quad[i];
+      const b = quad[j];
+      if (a.y > py !== b.y > py && px < ((b.x - a.x) * (py - a.y)) / (b.y - a.y) + a.x) {
+        inside = !inside;
+      }
+    }
+    return inside;
+  };
+  const paintDisc = (center, radius, color) => {
+    for (let y = Math.floor(center.y - radius); y <= Math.ceil(center.y + radius); y += 1) {
+      for (let x = Math.floor(center.x - radius); x <= Math.ceil(center.x + radius); x += 1) {
+        if (Math.hypot(x - center.x, y - center.y) <= radius) {
+          paint(x, y, color);
+        }
+      }
+    }
+  };
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      paint(x, y, insideQuad(x + 0.5, y + 0.5) ? CARD_COLOR : BACKGROUND_COLOR);
+    }
+  }
+  // 标记点半径按源图给足，保证下采样到目标尺寸后仍有纯色区域可供断言
+  quad.forEach((point, index) => paintDisc(point, 8, CORNER_COLORS[index]));
+  paintDisc(diagonalCenter(quad), 8, CENTER_COLOR);
+  return { data, width, height };
+};
+
+const readPixel = (data, width, x, y) => [
+  data[(y * width + x) * 4],
+  data[(y * width + x) * 4 + 1],
+  data[(y * width + x) * 4 + 2],
+];
+const colorNear = (actual, expected, tolerance = 12) =>
+  actual.every((value, index) => Math.abs(value - expected[index]) <= tolerance);
+const countPixels = (data, predicate) => {
+  let count = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    if (predicate(data[index], data[index + 1], data[index + 2])) {
+      count += 1;
+    }
+  }
+  return count;
+};
+
+const OBLIQUE_TARGET = { width: 240, height: 150 };
+const photo = buildPhoto(400, 300, OBLIQUE_QUAD);
+const warped = warpQuadToPixels({
+  source: photo,
+  quad: OBLIQUE_QUAD,
+  targetWidth: OBLIQUE_TARGET.width,
+  targetHeight: OBLIQUE_TARGET.height,
+});
+check('斜拍梯形能产出矫正位图', warped !== null, true);
+check(
+  '矫正结果里不再出现任何背景像素（背景不是被擦除，而是根本没被采样到）',
+  countPixels(warped, (r, g, b) => r > 170 && g < 120 && b < 100),
+  0,
+);
+check(
+  '矫正后卡面底色占比超过 80%',
+  countPixels(warped, (r, g, b) => colorNear([r, g, b], CARD_COLOR, 6)) >
+    OBLIQUE_TARGET.width * OBLIQUE_TARGET.height * 0.8,
+  true,
+);
+[
+  [3, 3, 0],
+  [OBLIQUE_TARGET.width - 4, 3, 1],
+  [OBLIQUE_TARGET.width - 4, OBLIQUE_TARGET.height - 4, 2],
+  [3, OBLIQUE_TARGET.height - 4, 3],
+].forEach(([x, y, index]) => {
+  check(
+    `矫正后第 ${index + 1} 个角落在卡片角点上`,
+    colorNear(readPixel(warped, OBLIQUE_TARGET.width, x, y), CORNER_COLORS[index]),
+    true,
+  );
+});
+check(
+  '矫正后对角线交点落在画布中心（射影不变量）',
+  colorNear(
+    readPixel(warped, OBLIQUE_TARGET.width, OBLIQUE_TARGET.width / 2, OBLIQUE_TARGET.height / 2),
+    CENTER_COLOR,
+  ),
+  true,
+);
+
+// 矩形四角时是纯缩放：逐像素应精确等于原图对应区域
+const RECT_QUAD = [
+  { x: 40, y: 30 },
+  { x: 280, y: 30 },
+  { x: 280, y: 180 },
+  { x: 40, y: 180 },
+];
+const rectPhoto = buildPhoto(400, 300, RECT_QUAD);
+const rectWarped = warpQuadToPixels({
+  source: rectPhoto,
+  quad: RECT_QUAD,
+  targetWidth: 240,
+  targetHeight: 150,
+});
+check(
+  '四边形为矩形时逐像素等价于原图裁剪',
+  readPixel(rectWarped, 240, 10, 20),
+  readPixel(rectPhoto.data, 400, 50, 50),
+);
+
+// 单应矩阵：把目标矩形四角精确映射回卡片四角
+const RECT_TARGET = [
+  { x: 0, y: 0 },
+  { x: OBLIQUE_TARGET.width, y: 0 },
+  { x: OBLIQUE_TARGET.width, y: OBLIQUE_TARGET.height },
+  { x: 0, y: OBLIQUE_TARGET.height },
+];
+const homography = resolveHomography(RECT_TARGET, OBLIQUE_QUAD);
+const homographyErrors = OBLIQUE_QUAD.map((point, index) => {
+  const mapped = applyHomography(homography, RECT_TARGET[index]);
+  return Math.hypot(mapped.x - point.x, mapped.y - point.y);
+});
+check(
+  '单应矩阵把目标矩形四角映射到卡片四角（误差 < 1e-6）',
+  Math.max(...homographyErrors) < 1e-6,
+  true,
+);
+
+// 退化保护
+const BOWTIE_QUAD = [
+  { x: 60, y: 40 },
+  { x: 350, y: 70 },
+  { x: 80, y: 230 },
+  { x: 330, y: 260 },
+];
+check('自交（蝴蝶形）四边形被拒绝', isValidQuad(BOWTIE_QUAD, 400, 300), false);
+check(
+  '共线四边形被拒绝',
+  isValidQuad(
+    [
+      { x: 0, y: 0 },
+      { x: 100, y: 0 },
+      { x: 200, y: 0 },
+      { x: 300, y: 0 },
+    ],
+    400,
+    300,
+  ),
+  false,
+);
+check(
+  '面积过小的四边形被拒绝',
+  isValidQuad(
+    [
+      { x: 10, y: 10 },
+      { x: 30, y: 10 },
+      { x: 30, y: 25 },
+      { x: 10, y: 25 },
+    ],
+    400,
+    300,
+  ),
+  false,
+);
+check(
+  '越界四边形被拒绝',
+  isValidQuad(
+    [
+      { x: -40, y: 10 },
+      { x: 300, y: 10 },
+      { x: 300, y: 200 },
+      { x: -40, y: 200 },
+    ],
+    400,
+    300,
+  ),
+  false,
+);
+check('缺少标定（null）被拒绝', isValidQuad(null, 400, 300), false);
+check(
+  '退化四边形不产生任何像素',
+  warpQuadToPixels({
+    source: photo,
+    quad: BOWTIE_QUAD,
+    targetWidth: OBLIQUE_TARGET.width,
+    targetHeight: OBLIQUE_TARGET.height,
+  }),
+  null,
+);
+
+// 拖动约束：只挡"会让四边形翻转"的拖法，不误挡斜拍产生的合法梯形
+const dragDefaultQuad = createDefaultQuad(1600, 1200, 88 / 56);
+const trapezoidMoved = constrainQuadCorner(dragDefaultQuad, 0, { x: 340, y: 240 }, 1600, 1200);
+check(
+  '上边整体右移的梯形允许拖到目标位置（不误挡斜拍）',
+  Math.hypot(trapezoidMoved[0].x - 340, trapezoidMoved[0].y - 240) < 1e-9,
+  true,
+);
+const clampedQuad = constrainQuadCorner(OBLIQUE_QUAD, 0, { x: 9999, y: 9999 }, 400, 300);
+check('越界拖角后四边形依然可用', isValidQuad(clampedQuad, 400, 300), true);
+check(
+  '拖角被钳制在图片范围内',
+  clampedQuad.every((point) => point.x >= 0 && point.y >= 0 && point.x <= 400 && point.y <= 300),
+  true,
+);
+const flipAttempt = constrainQuadCorner(OBLIQUE_QUAD, 0, { x: 395, y: 295 }, 400, 300);
+check('试图把角拖到对角位置时被凸性约束挡住', isValidQuad(flipAttempt, 400, 300), true);
+check(
+  '被挡住时角点停在凸性边界之前（不是原地不动）',
+  Math.hypot(flipAttempt[0].x - OBLIQUE_QUAD[0].x, flipAttempt[0].y - OBLIQUE_QUAD[0].y) > 1,
+  true,
+);
+
+// 边缘微调：围绕中心等比缩放，面积按比例平方收缩
+check('边缘微调为 0 时四角不变', applyEdgeOffset(OBLIQUE_QUAD, 0), OBLIQUE_QUAD);
+check(
+  '边缘微调 +2% 时面积收缩到 0.98²',
+  Math.abs(quadArea(applyEdgeOffset(OBLIQUE_QUAD, 2)) / quadArea(OBLIQUE_QUAD) - 0.98 * 0.98) <
+    1e-6,
+  true,
+);
+check(
+  '边缘微调超出范围时按上下限钳制',
+  Math.abs(quadArea(applyEdgeOffset(OBLIQUE_QUAD, 999)) / quadArea(OBLIQUE_QUAD) - 0.95 * 0.95) <
+    1e-6,
+  true,
+);
+
+// 默认四角：按规格比例内缩，且落在图片内
+const defaultQuad = createDefaultQuad(1600, 1000, 88 / 56);
+check('默认四角可用', isValidQuad(defaultQuad, 1600, 1000), true);
+check(
+  '默认四角保持规格宽高比',
+  (defaultQuad[1].x - defaultQuad[0].x) / (defaultQuad[3].y - defaultQuad[0].y),
+  88 / 56,
+);
+check(
+  '默认四角是矩形（上下边等长）',
+  quadAverageWidth(defaultQuad),
+  defaultQuad[1].x - defaultQuad[0].x,
+);
+
+// 卡面补白：88×56 规格内按卡体真实尺寸居中，四周留 1.2mm / 1.0mm 白边
+const PX_PER_MM_300 = dpiToPxPerMm(300);
+const copyCard = resolveCardRect(COPY_88x56, PX_PER_MM_300, mmToPx(88, 300), mmToPx(56, 300));
+check(
+  '88×56 规格下卡面按卡体真实尺寸绘制',
+  [copyCard.widthPx, copyCard.heightPx],
+  [mmToPx(CARD_PHYSICAL.widthMm, 300), mmToPx(CARD_PHYSICAL.heightMm, 300)],
+);
+check('卡面居中的白边像素宽度', [copyCard.offsetX, copyCard.offsetY], [14, 12]);
+check(
+  '白边宽度约 1.2mm / 1.0mm',
+  Math.abs(copyCard.offsetX / PX_PER_MM_300 - 1.2) < 0.1 &&
+    Math.abs(copyCard.offsetY / PX_PER_MM_300 - 1.0) < 0.1,
+  true,
+);
+const originalCard = resolveCardRect(ORIGINAL, PX_PER_MM_300, mmToPx(85.6, 300), mmToPx(54, 300));
+check(
+  '原大规格下卡面铺满画布',
+  [originalCard.widthPx, originalCard.heightPx, originalCard.offsetX, originalCard.offsetY],
+  [1011, 638, 0, 0],
+);
 
 if (failures.length > 0) {
   console.error(`\n✗ ${failures.length} 项断言失败：`);

@@ -5,6 +5,7 @@ import {
   MAX_FILE_SIZE_MB,
   MM_PER_INCH,
 } from '@/constants/idCard';
+import { clearRectifySource } from '@/utils/rectify';
 import type { CropArea } from '@/types/idCard';
 
 const HEIC_EXTENSIONS = ['heic', 'heif'];
@@ -94,6 +95,7 @@ export const getLoadedImage = (objectUrl: string): HTMLImageElement | null =>
 export function releaseImage(objectUrl: string): void {
   settledImages.delete(objectUrl);
   pendingImages.delete(objectUrl);
+  clearRectifySource(objectUrl);
   URL.revokeObjectURL(objectUrl);
 }
 

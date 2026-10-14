@@ -9,11 +9,13 @@ import {
   renderCroppedFace,
   toTotalRotation,
 } from '@/utils/image';
+import { renderRectifiedFace, resolveFaceQuad } from '@/utils/rectify';
 
 /**
  * 把某个面位渲染为目标像素尺寸的画布。
- * 裁剪信息缺失或不可用时回退到「按规格比例的居中默认裁剪」，保证只要上传了图片就一定有画面，
- * 不会因为裁剪数据异常而渲染出空白纸张。
+ *
+ * 透视矫正开启时先走矫正链路（R22）：四角数据不可用时由 resolveFaceQuad 回退默认四角，
+ * 矩阵退化时再由下面的矩形裁剪兜底 —— 保证只要上传了图片就一定有画面，不会渲染出空白纸张。
  */
 export const renderFaceCanvas = (
   face: FaceState,
@@ -25,6 +27,30 @@ export const renderFaceCanvas = (
   if (!source || !image) {
     return null;
   }
+  const targetWidthPx = preset.widthMm * pxPerMm;
+  const targetHeightPx = preset.heightMm * pxPerMm;
+  if (face.rectify.enabled) {
+    const rectified = renderRectifiedFace(
+      image,
+      resolveFaceQuad(
+        face.rectify.quad,
+        image.naturalWidth,
+        image.naturalHeight,
+        preset.widthMm / preset.heightMm,
+      ),
+      {
+        targetWidthPx,
+        targetHeightPx,
+        pxPerMm,
+        preset,
+        edgeOffsetPercent: face.rectify.edgeOffsetPercent,
+        cacheKey: source.objectUrl,
+      },
+    );
+    if (rectified) {
+      return rectified;
+    }
+  }
   const crop = isValidCropArea(face.croppedAreaPixels)
     ? face.croppedAreaPixels
     : computeDefaultCrop(image.naturalWidth, image.naturalHeight, preset.widthMm / preset.heightMm);
@@ -32,8 +58,8 @@ export const renderFaceCanvas = (
     image,
     crop,
     toTotalRotation(face.quarterTurns, face.fineRotation),
-    preset.widthMm * pxPerMm,
-    preset.heightMm * pxPerMm,
+    targetWidthPx,
+    targetHeightPx,
   );
 };
 

@@ -2,17 +2,29 @@ import { useMemoizedFn } from 'ahooks';
 import { App } from 'antd';
 import { useMemo } from 'react';
 
-import { getSpecPreset, MIN_RECOMMENDED_DPI } from '@/constants/idCard';
+import {
+  CARD_PHYSICAL,
+  DEFAULT_EDGE_OFFSET_PERCENT,
+  getSpecPreset,
+  MIN_RECOMMENDED_DPI,
+} from '@/constants/idCard';
 import { useIdCardStore } from '@/stores/useIdCardStore';
 import { FACE_META } from '@/types/idCard';
 import type { FaceKind } from '@/types/idCard';
 import {
   computeDefaultCrop,
   estimateEffectiveDpi,
+  getLoadedImage,
   loadImage,
   releaseImage,
   validateImageFile,
 } from '@/utils/image';
+import {
+  applyEdgeOffset,
+  createDefaultQuad,
+  quadAverageWidth,
+  resolveFaceQuad,
+} from '@/utils/rectify';
 
 export interface FaceEditorModel {
   handleSelectFile: (file: File) => Promise<void>;
@@ -62,6 +74,15 @@ export function useFaceEditor(kind: FaceKind): FaceEditorModel {
           image.naturalHeight,
           preset.widthMm / preset.heightMm,
         ),
+        rectify: {
+          ...face.rectify,
+          quad: createDefaultQuad(
+            image.naturalWidth,
+            image.naturalHeight,
+            preset.widthMm / preset.heightMm,
+          ),
+          edgeOffsetPercent: DEFAULT_EDGE_OFFSET_PERCENT,
+        },
       });
       message.success(`${FACE_META[kind].shortLabel}图片已就绪，可继续调整裁剪范围。`);
     } catch (error) {
@@ -83,12 +104,27 @@ export function useFaceEditor(kind: FaceKind): FaceEditorModel {
   });
 
   const effectiveDpi = useMemo(() => {
+    const source = face.source;
+    const image = source ? getLoadedImage(source.objectUrl) : null;
+    // 透视矫正模式下，卡片实际只占四边形那一块，按四边形宽度反算更贴近真实打印精度
+    if (image && face.rectify.enabled) {
+      const quad = applyEdgeOffset(
+        resolveFaceQuad(
+          face.rectify.quad,
+          image.naturalWidth,
+          image.naturalHeight,
+          preset.widthMm / preset.heightMm,
+        ),
+        face.rectify.edgeOffsetPercent,
+      );
+      return estimateEffectiveDpi(quadAverageWidth(quad), CARD_PHYSICAL.widthMm);
+    }
     const crop = face.croppedAreaPixels;
     if (!crop) {
       return null;
     }
     return estimateEffectiveDpi(crop.width, preset.widthMm);
-  }, [face.croppedAreaPixels, preset.widthMm]);
+  }, [face.source, face.rectify, face.croppedAreaPixels, preset.widthMm, preset.heightMm]);
 
   return {
     handleSelectFile,

@@ -4,5 +4,6 @@ export * from '../src/constants/project';
 export * from '../src/utils/alignment';
 export * from '../src/utils/geometry';
 export * from '../src/utils/image';
+export * from '../src/utils/rectify';
 export * from '../src/utils/watermark';
 export * from '../src/utils/export';

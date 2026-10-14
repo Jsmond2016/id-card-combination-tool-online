@@ -79,6 +79,20 @@ export const SNAP_THRESHOLD_MM = 2.5;
 export const CALIBRATION_RULER_MM = 50;
 
 /**
+ * 透视矫正相关常量（R22）。
+ *
+ * 矫正后的卡面按身份证真实比例居中绘制在规格画布内、四周补白 —— 真实复印机是
+ * 「卡片压在玻璃上、光轴垂直卡面」的正投影成像，卡外本就是白纸，这也是 88 × 56
+ * 复印件规格比卡体每边大 1.2mm / 1.0mm 的由来。所有尺寸仍然以毫米为唯一真值。
+ */
+export const DEFAULT_RECTIFY_ENABLED = false;
+/** 默认四角相对「按规格比例的最大内接矩形」的内缩比例，给用户留出可见的卡边 */
+export const DEFAULT_RECTIFY_INSET_RATIO = 0.04;
+/** 边缘微调可调范围（%）：正值向内收缩（切掉卡边外的残余背景），负值向外扩张 */
+export const EDGE_OFFSET_RANGE_PERCENT = { min: -5, max: 5 } as const;
+export const DEFAULT_EDGE_OFFSET_PERCENT = 0;
+
+/**
  * 水印相关常量（R20）。
  *
  * 水印是页面级效果：平铺覆盖整页 A4 并压在身份证图像之上，因此只影响观感，

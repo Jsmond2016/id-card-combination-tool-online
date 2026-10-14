@@ -20,7 +20,8 @@
     "format:check": "prettier --check .",
     "verify:logic": "esbuild scripts/verify-entry.ts --bundle --format=cjs --platform=node --alias:@=./src --outfile=tmp/verify-entry.cjs --log-level=warning && node scripts/verify-geometry.mjs tmp/verify-entry.cjs",
     "verify:e2e": "node scripts/verify-e2e.mjs",
-    "verify:crop": "node scripts/verify-crop-editing.mjs"
+    "verify:crop": "node scripts/verify-crop-editing.mjs",
+    "verify:rectify": "node scripts/verify-rectify.mjs"
   },
   "dependencies": {
     "@ant-design/cssinjs": "^1.23.0",

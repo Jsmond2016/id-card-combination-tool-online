@@ -30,6 +30,18 @@ export interface CropPoint {
   y: number;
 }
 
+/** 透视矫正的四个角点，顺序固定为「左上 → 右上 → 右下 → 左下」（源图像素坐标） */
+export type Quad = [CropPoint, CropPoint, CropPoint, CropPoint];
+
+/** 透视矫正设置（R22）：手动标定卡片四角，按单应变换拉正为正投影矩形 */
+export interface RectifySettings {
+  enabled: boolean;
+  /** 源图像素坐标下的四角；null 表示尚未标定，渲染时回退默认四角 */
+  quad: Quad | null;
+  /** 边缘微调（%）：正值向内收缩以切掉卡边外的残余背景，负值向外扩张 */
+  edgeOffsetPercent: number;
+}
+
 export interface SourceImage {
   fileName: string;
   fileSize: number;
@@ -54,6 +66,8 @@ export interface FaceState {
   fineRotation: number;
   offset: FaceOffset;
   croppedAreaPixels: CropArea | null;
+  /** 透视矫正设置（R22）；enabled 为 false 时完全沿用上面的矩形裁剪链路 */
+  rectify: RectifySettings;
 }
 
 export type LayoutMode = 'vertical' | 'horizontal';

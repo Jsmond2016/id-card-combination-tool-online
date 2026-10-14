@@ -1,8 +1,10 @@
 import { create } from 'zustand';
 
 import {
+  DEFAULT_EDGE_OFFSET_PERCENT,
   DEFAULT_DPI,
   DEFAULT_FACE_GAP_MM,
+  DEFAULT_RECTIFY_ENABLED,
   DEFAULT_SPEC_ID,
   DEFAULT_WATERMARK_ANGLE_DEG,
   DEFAULT_WATERMARK_ENABLED,
@@ -15,10 +17,18 @@ import type {
   FaceKind,
   FaceState,
   LayoutSettings,
+  RectifySettings,
   SourceImage,
   WatermarkSettings,
 } from '@/types/idCard';
 import { normalizeWatermarkText } from '@/utils/watermark';
+
+/** 透视矫正（R22）的初始状态：默认关闭，四角在首次上传时按规格比例生成 */
+export const createEmptyRectify = (): RectifySettings => ({
+  enabled: DEFAULT_RECTIFY_ENABLED,
+  quad: null,
+  edgeOffsetPercent: DEFAULT_EDGE_OFFSET_PERCENT,
+});
 
 export const createEmptyFace = (): FaceState => ({
   source: null,
@@ -28,6 +38,7 @@ export const createEmptyFace = (): FaceState => ({
   fineRotation: 0,
   offset: { xMm: 0, yMm: 0 },
   croppedAreaPixels: null,
+  rectify: createEmptyRectify(),
 });
 
 const createInitialFaces = (): Record<FaceKind, FaceState> => ({
@@ -115,11 +126,17 @@ export const useIdCardStore = create<IdCardState>()((set) => ({
   setExportSettings: (patch) =>
     set((state) => ({ exportSettings: { ...state.exportSettings, ...patch } })),
 
-  /** 仅重置裁剪与旋转，保留已上传的图片 */
+  /** 仅重置裁剪、旋转与四角标定，保留已上传的图片与当前的透视矫正开关 */
   resetFaceEdit: (kind) =>
-    set((state) =>
-      withFace(state, kind, { ...createEmptyFace(), source: state.faces[kind].source }),
-    ),
+    set((state) => {
+      const current = state.faces[kind];
+      const empty = createEmptyFace();
+      return withFace(state, kind, {
+        ...empty,
+        source: current.source,
+        rectify: { ...empty.rectify, enabled: current.rectify.enabled },
+      });
+    }),
 
   resetOffsets: () =>
     set((state) => ({

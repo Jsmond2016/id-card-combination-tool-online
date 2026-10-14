@@ -79,6 +79,7 @@ flowchart LR
 | R19 | `A4Preview` 用 CSS flex 排布「上/左标尺 + 纸张画布 + 参考线叠加画布」；标尺刻度与高亮区间用百分比定位，随预览尺寸自适应；拖动时 `utils/alignment.resolveSnap` 在毫米空间计算吸附位置与参考线，参考线画在独立的叠加画布上（`pointer-events: none`），避免污染导出画布 | `components/A4Preview.tsx`、`utils/alignment.ts`、`stores/useIdCardStore.ts` | 断言覆盖吸附到页面中心 / 安全边距 / 另一面位边缘、超阈值不吸附、阈值可覆盖为 0；浏览器实测真实鼠标拖拽后 `offset` 精确落在参考线上（横向 -51mm → 左边缘 10mm、纵向 +61mm → 上边缘 148.5mm），拖拽中叠加画布有参考线像素、松开后清零，关闭开关后标尺不再占位 | 已验证 |
 | R20 | `utils/watermark.ts` 纯函数：`normalizeWatermarkText`（折叠空白 + 按码点截断 15 字）、`estimateTextWidthMm` / `estimateTextHeightMm`（宽度与行高估算）、`computeWatermarkLayout`（覆盖外接圆的瓦片坐标）、`resolveWatermarkDrawParams`（参数钳制 + 可绘制性判定）与绘制函数 `drawWatermark`；`composeA4Canvas` 在面位之后、校准尺之前调用；`WatermarkPanel` 提供开关、文字输入（`maxLength` 15 + `showCount`）与字号 / 间距 / 角度三个滑块；`WatermarkSettings` 存入 Zustand store（TD17–TD19） | `utils/watermark.ts`、`utils/renderA4.ts`、`components/WatermarkPanel.tsx`、`stores/useIdCardStore.ts`、`types/idCard.ts`、`constants/idCard.ts` | 断言覆盖文字折叠与截断、宽度 / 行高估算、瓦片步进与四角覆盖、密度单调性、参数钳制、空文字与超小画布不绘制、瓦片数量上界；浏览器实测 UI 开关与输入联动、启用后白边出现墨迹、密度 / 角度 / 字号改动都会改变预览墨迹、关闭后墨迹归零 | 已验证 |
 | R21 | `constants/project.ts` 集中存放 `PROJECT_AUTHOR` / `PROJECT_REPO_URL` / `PROJECT_REPO_LABEL`；`AppFooter` 用 antd `Typography.Link` 渲染普通 `<a target="_blank" rel="noopener noreferrer">`，由 `HomePage` 挂在栅格 `Row` **之外**的容器末尾（避免受 A4 预览列 `sticky` 影响） | `constants/project.ts`、`components/AppFooter.tsx`、`pages/HomePage.tsx` | 断言：作者非空、仓库地址为 HTTPS 的 GitHub 地址、展示用短地址与真实地址一致；浏览器实测页脚文案含作者、链接 `href` / `target` / `rel` 正确、页脚内无 `img` / `script` / `iframe`，且全流程仍无第三方请求 | 已验证 |
+| R22 | 新增 `utils/rectify.ts` 纯函数模块：`createDefaultQuad`（默认四角）、`constrainQuadCorner`（凸性约束，结构性排除自交）、`isValidQuad`（有限性 / 界内 / 凸性 / 面积校验）、`resolveHomography`（高斯消元解 8 元方程组）、`warpQuadToPixels`（逐像素反向映射 + 双线性插值）、`applyEdgeOffset`（边缘微调）、`resolveCardRect`（卡面真实比例居中补白）、`renderRectifiedFace`（canvas 层封装 + 采样源降采样与缓存）；`renderFaceCanvas` 在 `rectify.enabled` 时改走矫正链路；`CropEditor` 顶部新增「矩形裁剪 / 透视矫正」分段控件，矫正模式渲染 `PerspectiveEditor`（SVG 四点手柄 + 暗化遮罩 + 边缘微调滑块），`FaceState` 新增 `rectify` 字段（TD20–TD23） | `utils/rectify.ts`、`utils/renderFace.ts`、`components/CropEditor.tsx`、`components/PerspectiveEditor.tsx`、`stores/useIdCardStore.ts`、`hooks/useFaceEditor.ts`、`types/idCard.ts`、`constants/idCard.ts` | `pnpm verify:logic` 新增 31 项断言（100 → 131）：单应矩阵映射误差 < 1e-6、矩形四角逐像素等价于原图裁剪、**斜拍梯形矫正后背景像素为 0**、四角与对角线交点落位、退化四边形被拒、凸性约束不误挡合法梯形、边缘微调面积与钳制、卡面补白尺寸；`pnpm verify:rectify` 6/6：整幅裁剪桌面色 23778 → 贴合裁剪 8902 → 矫正后 **0**，卡面内容 24306 仍在 | 已验证 |
 
 ---
 
@@ -105,6 +106,10 @@ flowchart LR
 | TD17 | 水印在**页面合成阶段**绘制：`composeA4Canvas` 内、面位之后、校准尺之前，与身份证图像共用同一条渲染链路 | 预览与导出共用 `composeA4Canvas`（TD2 的延伸），把水印画进这个函数，预览即所得、导出与预览天然一致；画在面位之后保证水印压在身份证图像**之上**，无法靠裁剪图片本身去掉 | ①画在面位画布上：水印被卡片边界裁掉，还会跟着卡片一起被拖动；②导出时另画一层：出现两条绘制路径，预览与导出必然漂移 |
 | TD18 | 水印平铺在**毫米空间**按「覆盖页面外接圆」计算瓦片，绘制时整体绕页面中心旋转 `angleDeg`；文本宽度按字符类型估算（全宽字符 = 1 倍字号、半角 = 0.6 倍字号），行高 = 1.2 倍字号 | 任意旋转角下「覆盖外接圆」必然覆盖整页矩形，无需按角度分类讨论；宽度估算让布局与浏览器字体度量解耦，同一输入可在 Node 中直接断言（无需 canvas） | 用 `measureText` 实时测量：布局依赖浏览器字体度量，脱离浏览器无法断言，且 Web 字体加载前后宽度会变 |
 | TD19 | 水印参数在**状态写入与绘制两处**守卫：store 写入时按码点截断到 15 字并折叠空白；绘制时把字号 / 间距 / 角度钳制到合法区间，`pxPerMm` 或字号异常时直接跳过绘制 | 水印是可选功能，参数一旦为 `NaN` / 越界 / 极值，轻则整页绘制失败，重则几十万个瓦片把浏览器拖死；钳制后瓦片数量有确定上界（实测最密配置 < 400 个） | 只在 UI 层限制取值范围：`InputNumber` 清空后回传 `null`，仍会写入非法值 |
+| TD20 | 透视矫正采用「用户手动标定四角 + 单应变换」，**不引入任何 CV / WebGL 依赖** | 只有"自动找四个角"才需要 CV 依赖；拿到四角之后，矫正本身只是一个 8 元线性方程组加一次重采样，几十行纯函数即可完成，且能在 Node 中直接断言 | ①引入 opencv.js（约 8MB）：违背"轻量在线工具"定位，且仅用于自动找角；②WebGL shader 做单应：多出一条渲染路径，预览 / 导出 / 测试成本都显著上升 |
+| TD21 | 单应矩阵按**「目标矩形 → 源四边形」**方向求解（避免再求逆），逐像素**反向映射** + 双线性插值；采样点落在源图之外时填纯白 | 反向映射遍历的是目标像素，复杂度只与输出尺寸相关、与 12MP 源图无关；采样点落在四边形之外即代表"卡片之外的内容"，**背景不是被擦除，而是根本不会被采样到**，这是背景零残留的机制 | 把四边形切成两个三角形用仿射变换近似：斜边会留下可见接缝，且需要在 canvas 上跑，脱离浏览器无法断言 |
+| TD22 | 采样源在渲染时先降到 `min(源尺寸, 2 × 卡面目标尺寸)` 再取像素；预览级（≤ 4M 像素）按 `objectUrl + 尺寸` 缓存（LRU ≤ 4 条，`releaseImage` 时清空），导出级不缓存 | 12MP 原图的 `ImageData` 约 48MB，而逐像素反演本就只按输出采样，2 倍目标尺寸即可满足 300 DPI 采样精度：内存从 48MB 降到 11MB（导出）/ 0.5MB（预览），同时保留下采样带来的抗锯齿收益 | 直接对原图 `getImageData`：内存峰值与首次绘制耗时都不可控，手机上尤其危险 |
+| TD23 | 矫正结果按「卡面真实比例 85.6 × 54mm 居中 + 规格内补白」绘制；「边缘微调」在**渲染时**施加，不改写用户标定的四角 | 88 × 56 比卡体每边大 1.2mm / 1.0mm，真实复印机在玻璃上复印卡片时卡外本就是白纸；按真实比例居中既复现这一观感，又避免 88/56 与 85.6/54 之间 0.87% 的比例压缩。边缘微调只作用于渲染，用户标定的锚点始终可回退 | ①拉伸铺满画布：产生 0.87% 比例压缩且丢失真实的白色卡边；②把边缘微调写回 store：会不可逆地破坏用户标定的四角 |
 
 ---
 
@@ -133,6 +138,7 @@ flowchart LR
     │   ├── alignment.ts          # 拖拽吸附：参考线锚点、吸附位置计算
     │   ├── image.ts              # 文件校验、解码、旋转包围盒、裁剪重采样
     │   ├── renderFace.ts         # 把单个面位渲染为规格尺寸画布
+    │   ├── rectify.ts           # 透视矫正：单应矩阵、逐像素反向映射、边缘微调、卡面补白
     │   ├── watermark.ts          # 水印：文字规范化、宽度估算、平铺瓦片计算与绘制
     │   ├── renderA4.ts           # A4 Canvas 合成、校准标尺
     │   └── export.ts             # PNG/JPG/PDF 导出、文件名、下载
@@ -145,6 +151,7 @@ flowchart LR
     │   ├── FaceCard.tsx          # 面位卡片：成品预览、重传、移除
     │   ├── FaceOutputPreview.tsx # 面位"成品效果"预览画布
     │   ├── CropEditor.tsx        # react-easy-crop 裁剪编辑区
+    │   ├── PerspectiveEditor.tsx # 透视矫正：四点定位手柄 + 暗化遮罩 + 边缘微调
     │   ├── LayoutPanel.tsx       # 规格、版式、对齐、份数、位置微调
     │   ├── WatermarkPanel.tsx    # 水印开关、文字、大小 / 密度 / 角度
     │   ├── A4Preview.tsx         # A4 预览（可拖动微调面位）
@@ -374,6 +381,74 @@ tiles     = { (i * stepX, j * stepY) | i ∈ [-maxIndexX, maxIndexX], j ∈ [-ma
 
 ---
 
+
+### 11. 透视矫正（四点拉正）
+
+**为什么需要它**：矩形裁剪 + 旋转 + 缩放都是**仿射变换**，而相机光轴与卡面不平行时，卡片在画面里是**梯形**——矩形裁剪框与梯形之间必然出现四块三角形背景，这就是"裁切很精准却仍然带背景"的根因。复印机是「卡片压在玻璃上、光轴垂直卡面」的**正投影**成像，所以"逼近复印机效果"在数学上等价于消掉这个透视投影。
+
+**1. 四角定位**
+
+- 角点顺序固定为「左上 → 右上 → 右下 → 左下」，坐标存在**源图像素空间**（与 `quarterTurns` 无关；矫正视图下不提供旋转控件，避免坐标系混淆）。
+- 默认四角 = 按规格比例的最大内接矩形再内缩 4%（`DEFAULT_RECTIFY_INSET_RATIO`），用户只需微调。
+- 拖动约束由 `constrainQuadCorner` 给出：四个顶点各对应一个叉积凸性判据，其中只有两个涉及被拖动顶点，且都关于该顶点**线性**，因此可沿「原位置 → 目标位置」解析求出最大可行比例，从结构上保证四边形**永远凸且不自交**，既不会误挡斜拍产生的合法梯形（例如上边整体右移），也不会翻转到对角。
+- 手柄半径 8px、命中区直径 44px，覆盖层 `touch-action: none`，移动端拖角不会带动页面滚动。
+
+**2. 单应矩阵**
+
+令源点 `(x, y)` 对应目标点 `(u, v)`，取 `h8 = 1`，每对点给出两个方程：
+
+```text
+h0·x + h1·y + h2 − h6·x·u − h7·y·u = u
+h3·x + h4·y + h5 − h6·x·v − h7·y·v = v
+```
+
+4 对点共 8 个方程，用高斯消元（部分主元）解出 `h0..h7`；主元小于阈值即判定为退化（共线 / 自交）并返回 `null`。求解方向是**「目标矩形 → 源四边形」**，因此逐像素反演时不需要再求逆矩阵。
+
+**3. 逐像素反向映射**
+
+```text
+对每个目标像素 (u, v)：
+  (x, y) = H · (u, v, 1)     // 直接得到源图坐标
+  落在源图之外        → 填纯白
+  否则                → 双线性插值取样
+```
+
+采样点落在四边形之外即代表"卡片之外的内容"，因此**背景不是被擦除，而是根本不会被采样到**。边缘处允许 0.5px 容差并把取样索引钳制到边界，避免卡边出现白缝。
+
+**4. 输出与卡面尺寸**
+
+```text
+规格画布     = 88 × 56mm @300DPI  = 1039 × 661 px（尺寸链路完全不变，R6 不受影响）
+卡面绘制尺寸 = 85.6 × 54mm        = 1011 × 638 px
+白色卡边     = 左右各约 14px（≈1.2mm）、上下各 12px（≈1.0mm）
+```
+
+`resolveCardRect` 负责这段换算，卡面之外的区域保持纯白——这正是复印机在玻璃上复印卡片时的观感。若选择「85.6 × 54mm」预设，卡面铺满画布、白边为 0。
+
+**5. 性能与内存**
+
+| 场景 | 目标像素 | 采样源 | 单帧耗时 |
+| ---- | -------- | ------ | -------- |
+| 面位预览 / 裁剪弹窗预览 | 132–220px 宽（约 3 万像素） | ≤ 440px 宽（约 0.5MB） | < 3ms（缓存命中后 < 1ms） |
+| A4 预览 | 218px 宽（约 2.7 万像素） | ≤ 436px 宽（约 0.5MB） | < 3ms |
+| 导出（300 DPI） | 1039 × 661（约 69 万像素） | 2078 × 1276（约 11MB） | 约 30–60ms（一次性） |
+
+- 逐像素反演的复杂度只与**输出**像素数相关，与源图无关；采样源降到「卡面目标尺寸的 2 倍」即可满足印刷采样精度（TD22）。
+- 预览级像素数据按 `objectUrl + 尺寸` 缓存在 `rectify.ts`（LRU ≤ 4 条）；`releaseImage` 时按 `objectUrl` 前缀清空，导出级数据一次性使用、不常驻。
+- 预览重绘仍走既有 rAF 合并路径，拖角过程不产生新的中间画布。
+
+**6. 退化保护（三层）**
+
+1. **写入前**：`constrainQuadCorner` 从结构上排除自交；`isValidQuad` 校验有限性、在界内、凸性、面积 ≥ 图片面积的 1%。
+2. **绘制前**：`warpQuadToPixels` 再次校验；矩阵奇异或四边形退化时返回 `null`。
+3. **渲染层**：`renderFaceCanvas` 在 `rectify.enabled` 但数据不可用时回退到既有矩形裁剪，守住"只要有图就一定有画面"的既有保证。
+
+**7. 与矩形裁剪的关系**
+
+两种模式互斥但**状态互不覆盖**：矫正模式下不读取也不写入 `crop` / `zoom` / `quarterTurns` / `croppedAreaPixels`，切回矩形裁剪时用户此前的裁剪参数原样保留。`rectify.enabled` 默认 `false`，既有行为与既有断言完全不受影响。
+
+---
+
 ## 风险与对策
 
 | 风险 | 影响 | 对策 |
@@ -389,6 +464,9 @@ tiles     = { (i * stepX, j * stepY) | i ∈ [-maxIndexX, maxIndexX], j ∈ [-ma
 | 吸附阈值（2.5mm）内无法用鼠标停出任意位置 | 用户想精确放在距参考线 1~2mm 处时会被吸走 | 位置微调 X / Y 输入框（步进 0.5mm）不受吸附影响，可直接输入精确值；需要时调小 `SNAP_THRESHOLD_MM` |
 | 水印参数取到极值（字号极小 + 间距极小 + 长文字）导致瓦片数量爆炸 | 预览重绘与导出变慢，极端情况卡死浏览器 | 绘制前把字号 / 间距 / 角度钳制到合法区间（TD19），瓦片数量因此有确定上界（最密 < 400 个，已断言） |
 | 窄屏容器写死固定最小宽度 / 长文本不可断行 | 手机 H5 出现横向滚动条，内容被顶出屏幕（已实际发生：裁剪弹窗 320px 最小宽度） | 窄屏最小宽度一律用 `min(值, 100%)`；长 URL 加 `break-all`；关闭 iOS 字体放大；由 `verify:e2e` 在 320/360/390px 下断言整页与弹层均无横向滚动（见「关键实现细节 §10」） |
+| 用户四角标定不精确，卡边仍露出一圈背景 | 打印观感仍不干净 | 「边缘微调」滑块（±5%，渲染时施加、不破坏标定锚点）；编辑器与打印提示中明确"四角尽量贴到卡片边缘"（TD23） |
+| 透视矫正逐像素重采样导致大图卡顿 / 内存峰值 | 拖角掉帧、导出失败 | 采样源降到卡面目标尺寸的 2 倍（导出级约 11MB）；预览级像素数据缓存且 LRU ≤ 4 条、导出后不常驻；单帧复杂度只与输出像素数相关（TD22） |
+| 四边形退化（自交 / 共线 / 面积过小）导致矩阵奇异或画面撕裂 | 成品空白或几何错乱 | 拖动时按凸性约束从结构上保证凸性；写入与绘制两处 `isValidQuad` 校验；渲染层回退矩形裁剪（§11.6） |
 
 ---
 
@@ -402,6 +480,7 @@ tiles     = { (i * stepX, j * stepY) | i ∈ [-maxIndexX, maxIndexX], j ∈ [-ma
 | Q2 | 是否保留"每页 2 份" | 已保留并验证 | R9 |
 | Q3 | 是否需要「仅供 XX 使用」水印 | 已实现为可自定义水印（R20）：开关 + 文字 + 大小 / 密度 / 角度 | R20；透明度与颜色暂为固定值 |
 | Q4 | 是否需要草稿持久化 | 未实现（隐私优先） | 非目标项 |
+| Q5 | 透视矫正后的卡面在规格画布内如何摆放 | 已按推荐方案实现：卡面按真实比例 85.6 × 54mm 居中，四周留 1.2mm / 1.0mm 白边（贴近真实复印件观感）；「85.6 × 54mm」预设下白边为 0 | R22、R6 的视觉效果 |
 
 ## 复现验证
 
@@ -412,9 +491,10 @@ pnpm verify:logic            # 纯逻辑断言，无需浏览器
 pnpm dev --host 127.0.0.1 --port 5199   # 另开一个终端
 pnpm verify:e2e              # 无头 Chrome 全流程验证（默认访问 127.0.0.1:5199）
 pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/关闭弹窗后不得丢画面
+pnpm verify:rectify          # 透视矫正：斜拍梯形拉正后背景像素归零，并生成前后对比图
 ```
 
-`verify:e2e`、`verify:crop` 均支持 `APP_URL`、`CDP_PORT`、`SCREENSHOT_PATH` 环境变量覆盖；脚本仅使用本地 Chrome 与 CDP，不引入额外浏览器依赖。
+`verify:e2e`、`verify:crop` 支持 `APP_URL`、`CDP_PORT`、`SCREENSHOT_PATH` 环境变量覆盖；`verify:rectify` 额外支持 `SCREENSHOT_DIR`（默认 `tmp/rectify-demo`）。三个脚本都只使用本地 Chrome 与 CDP，不引入额外浏览器依赖。
 
 > `verify:crop` 需要读取 Zustand store 内部状态做断言，因此 `src/main.tsx` 中保留了 `import.meta.env.DEV` 守卫下的开发探针（`window.__idCardStore`）。该分支在生产构建时会被静态移除，不影响产物体积与安全边界。
 
@@ -489,3 +569,11 @@ pnpm verify:crop             # 裁剪编辑回归：拖动/缩放/旋转/复位/
 | 2026-10-14 | 移动端视口回归 | `pnpm verify:e2e` 新增断言 | 53/53 通过：320 / 360 / 390px 下整页 `scrollWidth == clientWidth`、裁剪弹窗 `scrollWidth == clientWidth`、无卡片标题被截断 |
 | 2026-10-14 | 全量回归（含移动端修复） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 100/100、E2E 53/53、裁剪回归 8/8 |
 | 2026-10-14 | 页脚视觉核对 | 无头 Chrome 截图 `/private/tmp/footer-e2e.png` 人工确认 | 通过：页面底部居中展示作者、仓库地址与「全程本地处理，不上传、不收集任何数据」，顶部细线分隔，宽度自适应且不遮挡导出相关操作 |
+| 2026-10-14 | 新增 `utils/rectify.ts`：`createDefaultQuad`、`constrainQuadCorner`（凸性约束）、`isValidQuad`、`resolveHomography`（高斯消元解 8 元方程组）、`warpQuadToPixels`（逐像素反向映射 + 双线性插值）、`applyEdgeOffset`、`resolveCardRect`、`prepareRectifySource`（降采样 + LRU 缓存 + 释放）、`renderRectifiedFace` | R22 | 矫正算法（TD20–TD22） |
+| 2026-10-14 | 新增 `components/PerspectiveEditor.tsx`（SVG 四点手柄 + 暗化遮罩 + 边缘微调虚线预览 + 44px 命中区）与 `CropEditor` 的「矩形裁剪 / 透视矫正」分段控件；`FaceState` 新增 `rectify` 字段；`renderFaceCanvas` 在矫正模式下先走矫正链路、不可用时回退矩形裁剪；`useFaceEditor` 上传时生成默认四角并按四边形宽度反算有效 DPI；`releaseImage` 同步清理像素缓存 | R22、R5、R15 | 交互与状态层 |
+| 2026-10-14 | 新增验证脚本 `scripts/verify-rectify.mjs`（内含用针孔相机模型合成"斜拍卡片 + 桌面背景"照片的夹具）与 `package.json` 的 `verify:rectify`；`verify:logic` 新增 31 项矫正断言（100 → 131） | R22 | 验证能力 |
+| 2026-10-14 | 修正拖角约束：初版用"每个角限制在自己象限内"的规则，会误挡斜拍产生的合法梯形（如上边整体右移），改为按两个受影响的凸性判据沿「原位置 → 目标位置」解析求最大可行比例 | R22 | 算法修正 |
+| 2026-10-14 | 文档同步：AGENTS.md 补透视矫正常量与实现约束；README 与 `docs/使用说明.md` 更新能力边界（原先写"本工具不做透视矫正"已过时） | R22 | 消除文档漂移 |
+| 2026-10-14 | 透视矫正逻辑 | `pnpm verify:logic` 新增 31 项断言 | 129/129 通过：单应矩阵把目标矩形四角映射到卡片四角（误差 < 1e-6）、四边形为矩形时逐像素等价于原图裁剪、**斜拍梯形矫正后背景像素为 0**、矫正后四角与对角线交点（射影不变量）落在预期位置、蝴蝶形 / 共线 / 面积过小 / 越界 / null 四边形均被拒且不产生像素、拖角按凸性约束钳制（不误挡合法梯形、越界被挡在图片内）、边缘微调面积按比例平方收缩并钳制、默认四角保持规格比例、88×56 卡面补白 14×12px（≈1.2mm / 1.0mm）、原大规格铺满画布 |
+| 2026-10-14 | 透视矫正浏览器实测与效果对比 | `pnpm verify:rectify`（CDP 驱动无头 Chrome：用真实针孔相机模型把示例卡片投影成梯形照片 → 上传 → 真实鼠标拖动四个角点 → 统计 A4 预览像素） | 6/6 通过：整幅裁剪时桌面色像素 23778、贴合裁剪后仍有 8902（如实复现用户反馈）、四个角点被拖到卡片四角（误差 < 4px）、矫正后 A4 预览里桌面色像素 **0**、卡面内容像素 24306 仍在；对比图输出到 `tmp/rectify-demo/`（`01-crop-before` / `01b-crop-tight-before` / `02-perspective-editor` / `03-rectified-after`） |
+| 2026-10-14 | 全量回归（含透视矫正） | `pnpm typecheck` / `pnpm lint` / `pnpm format:check` / `pnpm build` / `pnpm verify:logic` / `pnpm verify:e2e` / `pnpm verify:crop` / `pnpm verify:rectify` | 通过：类型 0 错误、Lint 0 错误 0 警告、格式一致、构建成功、逻辑断言 131/131、E2E 53/53、裁剪回归 8/8、透视矫正 6/6 |
